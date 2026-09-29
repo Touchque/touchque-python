@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.0.0] — 2026-09-29
+
+### Security
+- `webhook.verify()` rejects a webhook whose signed `timestamp` is missing or
+  unparseable (previously the freshness check was silently skipped).
+- New `replay_cache` argument (`MemoryReplayCache`, or your own `ReplayCache`
+  over Redis/DB): a second delivery of the same `jti` raises
+  `TouchQueWebhookReplayException` (a subclass of
+  `TouchQueWebhookSignatureException`) — answer 200 to it, it is a duplicate.
+
 ## [2.0.0] — 2026-09-28
 
 ### Added

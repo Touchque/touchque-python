@@ -144,7 +144,7 @@ import os
 from touchque.resources.webhook import _canonicalize
 
 _WH_FIXTURE_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "..", "fixtures", "webhook-vectors.json"
+    os.path.dirname(__file__), "..", "fixtures", "webhook-vectors.json"
 )
 with open(_WH_FIXTURE_PATH) as _f:
     _WH_FIXTURE = json.load(_f)
@@ -156,3 +156,53 @@ def test_webhook_canonical_matches_backend_vector(vec):
     wh = Webhook(Config(api_key="tq_x", api_secret=_WH_FIXTURE["secret"]))
     result = wh.verify(vec["delivered_body"], tolerance_seconds=0)  # fixtures have a fixed timestamp
     assert result["requestId"] == vec["payload"]["requestId"]
+
+
+# ── Replay protection (A12) ──
+
+def test_a_missing_or_invalid_timestamp_fails_closed():
+    no_ts = fresh_payload()
+    del no_ts["timestamp"]
+    for body in (server_webhook(no_ts), server_webhook(fresh_payload(timestamp="not-a-date"))):
+        with pytest.raises(TouchQueWebhookSignatureException):
+            make_webhook().verify(body)
+
+
+def test_replay_cache_rejects_the_second_delivery_of_the_same_jti():
+    from touchque import MemoryReplayCache, TouchQueWebhookReplayException
+
+    cache = MemoryReplayCache()
+    wh = make_webhook()
+    body = server_webhook(fresh_payload(jti="once"))
+    assert wh.verify(body, replay_cache=cache)["jti"] == "once"
+    with pytest.raises(TouchQueWebhookReplayException) as exc:
+        wh.verify(body, replay_cache=cache)
+    assert exc.value.jti == "once"
+    assert isinstance(exc.value, TouchQueWebhookSignatureException)
+    wh.verify(server_webhook(fresh_payload(jti="other")), replay_cache=cache)
+    no_jti = fresh_payload()
+    del no_jti["jti"]
+    with pytest.raises(TouchQueWebhookSignatureException):
+        wh.verify(server_webhook(no_jti), replay_cache=cache)
+
+
+def test_a_forged_webhook_does_not_poison_the_replay_cache():
+    from touchque import MemoryReplayCache
+
+    cache = MemoryReplayCache()
+    with pytest.raises(TouchQueWebhookSignatureException):
+        make_webhook().verify(server_webhook(fresh_payload(jti="victim"), secret="wrong"), replay_cache=cache)
+    make_webhook().verify(server_webhook(fresh_payload(jti="victim")), replay_cache=cache)
+
+
+def test_memory_replay_cache_forgets_expired_entries(monkeypatch):
+    from touchque import MemoryReplayCache
+    import touchque.resources.webhook as mod
+
+    clock = [1000.0]
+    monkeypatch.setattr(mod.time, "monotonic", lambda: clock[0])
+    cache = MemoryReplayCache()
+    assert cache.check_and_set("x", 10) is True
+    assert cache.check_and_set("x", 10) is False
+    clock[0] += 11
+    assert cache.check_and_set("x", 10) is True

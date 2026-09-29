@@ -7,9 +7,11 @@ from .exceptions import (
     TouchQueTimeoutException,
     TouchQueRejectedException,
     TouchQueWebhookSignatureException,
+    TouchQueWebhookReplayException,
     TouchQueConfigException,
     TouchQuePasskeyRequiredError,
 )
+from .resources.webhook import ReplayCache, MemoryReplayCache
 from .steps import normalize_details, details_digest
 from .guard import run_guard, guard_input_from_headers
 
@@ -23,6 +25,9 @@ __all__ = [
     'TouchQueTimeoutException',
     'TouchQueRejectedException',
     'TouchQueWebhookSignatureException',
+    'TouchQueWebhookReplayException',
+    'ReplayCache',
+    'MemoryReplayCache',
     'TouchQueConfigException',
     'TouchQuePasskeyRequiredError',
     'normalize_details',

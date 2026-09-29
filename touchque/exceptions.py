@@ -53,6 +53,18 @@ class TouchQueWebhookSignatureException(TouchQueException):
     pass
 
 
+class TouchQueWebhookReplayException(TouchQueWebhookSignatureException):
+    """
+    Raised when a correctly signed webhook with this ``jti`` was already
+    accepted. Usually a TouchQue retry of a delivery you processed: answer
+    200 so it stops, but don't run your side effects again.
+    """
+
+    def __init__(self, jti: str):
+        super().__init__("Webhook was already accepted (replayed jti)")
+        self.jti = jti
+
+
 class TouchQueConfigException(TouchQueException):
     """Raised when configuration is invalid or incomplete."""
     pass
