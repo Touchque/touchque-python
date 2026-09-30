@@ -114,6 +114,50 @@ def test_guard_enroll_then_offline_code(fake_api):
     assert ok['approved']['assurance'] == {'phishingResistant': False, 'method': 'offline_code'}
 
 
+def test_guard_phone_reject_kills_the_offline_qr(fake_api):
+    api = fake_api
+    api.link('jane@acme.com')
+    tq = client_for(api)
+
+    start = run_guard(tq, 'jane@acme.com', 'LOGIN')
+    off = run_guard(tq, 'jane@acme.com', 'LOGIN', token=start['body']['token'], offline=True)
+    assert off['body']['touchque']['state'] == 'offline'
+    # The QR is linked to the push the user started.
+    qr_call = [c for c in api.calls() if c['path'] == '/offline/challenge'][-1]
+    assert qr_call['body']['requestId'] == start['body']['touchque']['requestId']
+
+    # While the QR is up the page keeps polling; nothing changes until the phone answers.
+    poll = run_guard(tq, 'jane@acme.com', 'LOGIN', token=off['body']['token'])
+    assert poll['status'] == 202
+    assert poll['body']['touchque']['state'] == 'offline'
+    assert poll['body']['touchque']['offline']['challengeId'] == off['body']['touchque']['offline']['challengeId']
+
+    api.reject()  # the user taps Reject on the phone
+
+    rejected = run_guard(tq, 'jane@acme.com', 'LOGIN', token=poll['body']['token'])
+    assert rejected['status'] == 403 and rejected['body']['touchque']['state'] == 'rejected'
+    # Even the right code from the QR already on screen does not finish it...
+    late = run_guard(tq, 'jane@acme.com', 'LOGIN', token=off['body']['token'], code='ABCD123')
+    assert late['body']['touchque'] == {'state': 'rejected', 'requestId': start['body']['touchque']['requestId'], 'reason': 'request_rejected'}
+    # ...nor the time-based code...
+    totp = run_guard(tq, 'jane@acme.com', 'LOGIN', token=off['body']['token'], code='123456', code_type='totp')
+    assert totp['body']['touchque']['state'] == 'rejected'
+    # ...and pressing offline mode again gets no QR for that sign-in.
+    again = run_guard(tq, 'jane@acme.com', 'LOGIN', token=start['body']['token'], offline=True)
+    assert again['body']['touchque']['state'] == 'rejected'
+
+
+def test_guard_offline_qr_carries_the_number_for_matching(fake_api):
+    api = fake_api
+    api.link('jane@acme.com')
+    api.opts(numberMatch=True)
+    tq = client_for(api)
+    start = run_guard(tq, 'jane@acme.com', 'LOGIN')
+    assert start['body']['touchque']['number'] == '47'
+    off = run_guard(tq, 'jane@acme.com', 'LOGIN', token=start['body']['token'], offline=True)
+    assert off['body']['touchque']['offline']['challengeCode'] == '47'
+
+
 def test_guard_frozen_rate_limited_blocked(fake_api):
     api = fake_api
     api.link('jane@acme.com')

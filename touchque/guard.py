@@ -98,7 +98,7 @@ def run_guard(
         if bound and code and (bound.get('st') == 'offline' or code_type == 'totp'):
             is_totp = code_type == 'totp'
             if is_totp:
-                res = client.offline.verify_totp(user, code, type=action, client_ip=ip)
+                res = client.offline.verify_totp(user, code, type=action, client_ip=ip, request_id=bound.get('rid'))
             else:
                 res = client.offline.verify(str(bound.get('oc')), code)
             for_this = (not res.get('externalUsername') or res['externalUsername'].lower() == user.lower()) \
@@ -112,26 +112,42 @@ def run_guard(
                 }}
             if res.get('reason') == 'invalid_code' and not is_totp:
                 return issue({'state': 'offline', 'offline': {'challengeId': str(bound.get('oc')),
-                                                                'attemptsLeft': res.get('attemptsLeft')}}, {'oc': bound.get('oc')})
+                                                                'attemptsLeft': res.get('attemptsLeft')}},
+                             {'oc': bound.get('oc'), 'rid': bound.get('rid'), 'n': bound.get('n')})
             if res.get('reason') == 'invalid_code':
-                return issue({'state': 'offline', 'reason': 'invalid_code'}, {'oc': bound.get('oc')})
+                return issue({'state': 'offline', 'reason': 'invalid_code'},
+                             {'oc': bound.get('oc'), 'rid': bound.get('rid'), 'n': bound.get('n')})
+            # The phone rejected the push this QR belongs to: the whole sign-in is over.
+            if res.get('reason') == 'request_rejected':
+                return issue({'state': 'rejected', 'requestId': bound.get('rid'), 'reason': 'request_rejected'})
             return issue({'state': 'expired' if res.get('reason') == 'expired' else 'blocked',
                            'reason': res.get('reason') or 'offline_failed'})
 
         if offline:
             try:
-                ch = client.offline.challenge(user, type=action, details=norm or None, client_ip=ip, user_agent=user_agent)
-                return issue({'state': 'offline', 'offline': {
+                # Link the QR to the push it follows: a phone-side rejection kills it, and a push that
+                # asked for number matching makes the QR ask for the same number.
+                rid = (bound or {}).get('rid')
+                ch = client.offline.challenge(user, type=action, details=norm or None, client_ip=ip,
+                                              user_agent=user_agent, request_id=rid)
+                offline_step = {
                     'challengeId': ch.get('challengeId'), 'qrDataUrl': ch.get('qrDataUrl'),
                     'expiresAt': ch.get('expiresAt'), 'totpAvailable': ch.get('totpAvailable'),
-                }})
+                }
+                if ch.get('challengeCode'):
+                    offline_step['challengeCode'] = ch['challengeCode']
+                return issue({'state': 'offline', 'offline': offline_step},
+                             {'rid': rid, 'n': ch.get('challengeCode') or (bound or {}).get('n')})
             except TouchQueAPIException as err:
+                if err.status == 409 and (err.code or (err.data or {}).get('error')) == 'request_rejected':
+                    return issue({'state': 'rejected', 'requestId': (bound or {}).get('rid'), 'reason': 'request_rejected'})
                 if err.status is not None and err.status < 500:
                     return issue({'state': 'blocked', 'reason': err.code or (err.data or {}).get('error') or 'offline_unavailable'})
                 raise
 
-        # Waiting on a push / passkey: poll, and run the action once approved.
-        if bound and bound.get('rid') and bound.get('st') in ('waiting', 'passkey_required'):
+        # Waiting on a push / passkey — or showing the offline QR next to a push that is still open: poll, and
+        # run the action once approved. While the QR is up a phone-side REJECT ends the attempt at once.
+        if bound and bound.get('rid') and bound.get('st') in ('waiting', 'passkey_required', 'offline'):
             now = check(client, bound['rid'])
             if now['state'] == 'approved':
                 try:
@@ -141,6 +157,10 @@ def run_guard(
                     if err.status == 409:
                         return issue({'state': 'expired', 'reason': err.code or 'already_used'})
                     raise
+            if bound.get('st') == 'offline' and now['state'] in ('waiting', 'expired', 'passkey_required'):
+                # Still (or no longer) pending: nothing changed for the user — keep showing the QR they have.
+                return issue({'state': 'offline', 'offline': {'challengeId': str(bound.get('oc'))}},
+                             {'oc': bound.get('oc'), 'rid': bound['rid'], 'n': bound.get('n')})
             if now['state'] in ('waiting', 'passkey_required'):
                 return issue({'state': now['state'], 'requestId': bound['rid'], 'number': bound.get('n')}, {'n': bound.get('n')})
             return issue({'state': now['state'], 'requestId': bound['rid']})

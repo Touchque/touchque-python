@@ -46,3 +46,28 @@ def test_verify_totp_posts_type_for_critical_action_checks():
 
     http.post.assert_called_once_with("/offline/totp/verify", {"externalUsername": "a@b.com", "code": "123456", "type": "WITHDRAW"})
     assert result["approved"] is True
+
+
+def test_challenge_links_the_push_and_asks_for_number_matching():
+    http = MagicMock()
+    http.post.return_value = {"challengeId": "c1", "challengeCode": "47"}
+    off = Offline(http)
+
+    ch = off.challenge("a@b.com", type="LOGIN", request_id="req-1", require_number_match=True)
+
+    http.post.assert_called_once_with(
+        "/offline/challenge",
+        {"externalUsername": "a@b.com", "type": "LOGIN", "requestId": "req-1", "requireNumberMatch": True},
+    )
+    assert ch["challengeCode"] == "47"
+
+
+def test_verify_totp_forwards_request_id_and_a_rejected_request_is_a_result():
+    http = MagicMock()
+    http.post.side_effect = TouchQueAPIException("rejected", status=410, code=None, reason="request_rejected")
+    off = Offline(http)
+
+    result = off.verify_totp("a@b.com", "ABCDEFG", request_id="req-1")
+
+    assert http.post.call_args[0][1]["requestId"] == "req-1"
+    assert result["approved"] is False and result["reason"] == "request_rejected"

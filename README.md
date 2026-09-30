@@ -112,6 +112,20 @@ ch = tq.offline.challenge(user='jane@acme.com', type='WITHDRAW',
 result = tq.offline.verify(challenge_id=ch['challengeId'], code=code)
 ```
 
+**A QR that follows a push.** Pass the push's request id when the offline QR is the fallback for a push
+the user already started (the guard does this for you):
+
+```python
+ch = tq.offline.challenge(user, type='LOGIN', request_id=step['requestId'])
+# ch.get('challengeCode') is the number to print under the QR when number matching applies.
+```
+
+If the user **rejects the push on the phone, the offline QR dies with it**: no new QR is issued for that
+sign-in (409 `request_rejected`), a code for a QR already on screen is refused (`reason: 'request_rejected'`)
+and so is the time-based code (`verify_totp(..., request_id=...)`). With number matching, print `challengeCode`
+under the QR: the phone shows it among two decoys and the user taps the match; a wrong tap yields a code that
+fails verification.
+
 ## Webhooks
 
 ```python
