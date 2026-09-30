@@ -106,7 +106,7 @@ for critical actions in the Dashboard's Security Policy.
 ## Offline sign
 
 ```python
-ch = tq.offline.challenge(user='jane@acme.com', type='WITHDRAW',
+ch = tq.offline.challenge(external_username='jane@acme.com', type='WITHDRAW',
                            details={'Amount': '1,250.00 USD', 'Recipient': 'Jane Doe'})
 # show ch['qrDataUrl'] — the phone scans it offline and shows a 7-character code
 result = tq.offline.verify(challenge_id=ch['challengeId'], code=code)
