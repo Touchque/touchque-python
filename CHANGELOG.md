@@ -3,6 +3,27 @@
 All notable changes to this project will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.2.0] — 2026-10-11
+
+### Added
+- **`verify_approval_proof(proof, request_id=..., type=..., details=..., challenge_code=...,
+  expected_public_key=...)`** — check the phone's own signature over the request, action,
+  number-match code and details it showed, without trusting TouchQue (same as the Node SDK's
+  `verifyApprovalProof`). Fails closed without a pinned key unless `allow_unpinned_key=True`.
+  Needs the optional extra: `pip install "touchque-authenticator[proof]"` (the core stays
+  requests-only). Tested against `fixtures/approval-proof-vectors.json`, shared by all SDKs.
+- **`tq.login.report_fraud(request_id, reason=..., note=...)`** — report a request you later learned
+  was fraud (chargeback, account takeover, social engineering). TouchQue's risk engine uses it as its
+  strongest training signal; the request's status does not change. Idempotent.
+- **Relay routes** for Flask (`touchque_relay_blueprint`), FastAPI (`touchque_relay_router`) and Django
+  (`touchque_relay_urls` / `touchque_relay_view`), on top of a framework-agnostic `RelayHandler`: the same
+  14 routes and behaviour as the Node SDK's `touchqueRouter` (`POST /login` with the two-phase guard contract,
+  enrollment, offline codes, passkey ceremonies and credential management). `get_login_user` binds `/login`
+  and the offline routes to the user who passed your first factor; the offline routes answer
+  `403 OFFLINE_REQUIRES_FIRST_FACTOR` without it; `/enroll/start` never replaces an already linked phone
+  (`409 already_linked`); sessions open only for the user TouchQue returns. Pre-auth routes are rate limited
+  per IP and per username by default (`FixedWindowLimiter`, `429 RATE_LIMITED` + `Retry-After`).
+
 ## [3.1.0] — 2026-09-30
 
 ### Security

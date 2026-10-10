@@ -4,9 +4,10 @@ import pytest
 
 django = pytest.importorskip('django')
 from django.conf import settings as _settings
-_settings.configure(DEBUG=True, ALLOWED_HOSTS=['*'], DEFAULT_CHARSET='utf-8')
-import django as _django
-_django.setup()
+if not _settings.configured:  # test_relay_django.py may have configured it already
+    _settings.configure(DEBUG=True, ALLOWED_HOSTS=['*'], DEFAULT_CHARSET='utf-8')
+    import django as _django
+    _django.setup()
 
 from django.test import RequestFactory  # noqa: E402
 

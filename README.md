@@ -73,6 +73,50 @@ header `X-TouchQue-Token: <token>` — see
 this loop for you in the browser. Once approved, the retried request reaches
 your view exactly once.
 
+## Relay routes (sign-in, enrollment, passkeys, offline)
+
+Instead of hand-writing the routes a frontend such as `@touchque/web` calls,
+mount the relay: `POST /login` (two-phase, same `202` + token contract as
+above), `/enroll/start`, `/enroll/status`, `/offline/challenge|verify|totp`,
+`/passkey/authenticate/*`, `/passkey/login/*`, `/passkey/register/*`,
+`GET /passkey/credentials` and `DELETE /passkey/credentials/<id>`.
+
+```python
+# Flask
+from touchque.contrib.flask import touchque_relay_blueprint
+
+def opened(request, response, info):          # open YOUR session here
+    session['user'] = info['externalUsername']  # info: externalUsername, requestId, via
+
+app.register_blueprint(touchque_relay_blueprint(
+    tq,
+    get_user_id=lambda req: session.get('user'),
+    # The user who already passed your password step. Binds POST /login and the
+    # offline routes to them; the offline routes stay off (403) without it.
+    get_login_user=lambda req: session.get('password_ok'),
+    on_authenticated=opened,
+), url_prefix='/touchque')
+```
+
+```python
+# FastAPI (callbacks may be async)
+from touchque.contrib.fastapi import touchque_relay_router
+app.include_router(touchque_relay_router(tq, get_user_id=..., get_login_user=...), prefix='/touchque')
+
+# Django (urls.py) - CSRF stays on: send X-CSRFToken from the page, or pass csrf_exempt=True
+from touchque.contrib.django import touchque_relay_urls
+urlpatterns = [path('touchque/', include(touchque_relay_urls(get_user_id=..., get_login_user=...)))]
+```
+
+Every callback gets the framework's request; `on_authenticated(request,
+response, info)` also gets the response that will be sent, so it can call
+`response.set_cookie(...)`. Other options: `rate_limit` (on by default: 20 per
+IP and 5 per username per route per minute; a dict with `window_ms` /
+`per_ip` / `per_user`, or `False`), `action_type` (default `'LOGIN'`),
+`get_details` and `allow_offline_without_first_factor`. Without a framework,
+call `touchque.RelayHandler(...).handle(method, path, body=..., ...)` and
+send the `RelayResponse` it returns.
+
 ## The three primitives, if you're not using a framework adapter
 
 ```python
@@ -135,6 +179,35 @@ try:
     event = tq.webhook.verify(raw_body=request.data, signature=request.headers['X-TouchQue-Signature'])
 except TouchQueWebhookSignatureException:
     return '', 403  # not from TouchQue
+```
+
+## Verifying the device proof (no need to trust TouchQue)
+
+Every approval from a phone with a hardware key carries `approvalProof`: the phone's own
+signature over the request id, action, number-match code and the exact details it showed.
+`pip install "touchque-authenticator[proof]"`, then:
+
+```python
+from touchque import verify_approval_proof
+
+ok = verify_approval_proof(
+    event['approvalProof'], request_id=request_id, type='WITHDRAW', details=details,
+    challenge_code=challenge_code,
+    expected_public_key=user.touchque_device_key,  # stored from their first verified approval
+)
+```
+
+Without `expected_public_key` it returns `False` unless `allow_unpinned_key=True` (trust on first
+use — store `proof['publicKey']`, then pin it).
+
+## Reporting fraud
+
+Learned later that an approved request was fraud? Report it — it is the strongest signal
+TouchQue's risk engine learns from, and it stays in your audit log:
+
+```python
+tq.login.report_fraud(request_id, reason='chargeback', note='Disputed by card holder')
+# reason: 'chargeback' | 'account_takeover' | 'social_engineering' | 'other'
 ```
 
 ## Errors

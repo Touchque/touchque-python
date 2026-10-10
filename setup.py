@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="touchque-authenticator",
-    version="3.1.0",
+    version="3.2.0",
     description="Official Python SDK for TouchQue Authenticator (2FA/MFA, passkeys, adaptive auth)",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
@@ -21,7 +21,9 @@ setup(
         "requests>=2.25.1",
     ],
     extras_require={
-        "dev": ["pytest>=7.0.0"],
+        "dev": ["pytest>=7.0.0", "cryptography>=3.1"],
+        # verify_approval_proof (ECDSA P-256); the core stays requests-only.
+        "proof": ["cryptography>=3.1"],
         "flask": ["flask>=2.0"],
         "django": ["django>=3.2"],
         "fastapi": ["fastapi>=0.100", "anyio>=3.0"],

@@ -25,15 +25,36 @@ match the other adapters exactly.
 ``run_guard`` makes a blocking HTTP call (the ``requests`` library); it runs
 in FastAPI's threadpool via ``anyio.to_thread`` so it never blocks the event
 loop.
+
+Relay routes (POST /login, enrollment, offline codes, passkey ceremonies)
+as one APIRouter - see ``touchque.relay.RelayHandler`` for every option.
+Callbacks may be sync or async:
+
+    from touchque.contrib.fastapi import touchque_relay_router
+
+    async def opened(request, response, info):
+        response.set_cookie('session', await create_session(info['externalUsername']))
+
+    app.include_router(touchque_relay_router(
+        tq,
+        get_user_id=lambda req: req.session.get('user'),
+        get_login_user=lambda req: req.session.get('password_ok'),
+        on_authenticated=opened,
+    ), prefix='/touchque')
 """
-from typing import Any, Callable, Optional
+import json
+from typing import Any, Awaitable, Callable, Optional
 
 import anyio
+import anyio.from_thread
+import anyio.to_thread
 import fastapi
-from fastapi import HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse, Response
 
 from ..client import TouchQue, get_default_client
 from ..guard import guard_input_from_headers, run_guard
+from ..relay import RELAY_ROUTES, RelayHandler
 from ..steps import LoginDetails
 
 
@@ -101,3 +122,65 @@ def install_touchque_exception_handler(app: fastapi.FastAPI) -> None:
         if isinstance(exc.detail, dict) and 'touchque' in exc.detail:
             return JSONResponse(exc.detail, status_code=exc.status_code, headers=exc.headers)
         return JSONResponse({'detail': exc.detail}, status_code=exc.status_code, headers=exc.headers)
+
+
+async def _await(awaitable: Awaitable[Any]) -> Any:
+    return await awaitable
+
+
+def _run_async(awaitable: Awaitable[Any]) -> Any:
+    """Resolves an async callback's result from the relay's worker thread."""
+    return anyio.from_thread.run(_await, awaitable)
+
+
+def touchque_relay_router(
+    client: Optional[TouchQue] = None,
+    prefix: str = '',
+    handler: Optional[RelayHandler] = None,
+    **options: Any
+) -> APIRouter:
+    """An APIRouter with every relay route. ``options`` are ``RelayHandler``'s
+    (``get_user_id`` is required); or pass a ready ``handler``. Callbacks may
+    be sync or async.
+
+    Callbacks get the Starlette ``Request``; ``on_authenticated(request,
+    response, info)`` gets a ``fastapi.Response`` whose headers (e.g.
+    ``response.set_cookie(...)``) are copied onto the JSON response - the same
+    pattern as a FastAPI ``response: Response`` parameter - or it may write
+    ``request.session``. ``request.client.host`` is the client IP the rate
+    limiter uses: behind a proxy, run uvicorn with ``--proxy-headers``.
+    The relay (blocking HTTP calls) runs in the threadpool.
+    """
+    relay = handler or RelayHandler(client, **options)
+    router = APIRouter(prefix=prefix)
+
+    def make_endpoint(method: str, sub: str) -> Callable[[Request], Awaitable[Response]]:
+        async def endpoint(request: Request) -> Response:
+            raw = await request.body()
+            body = None
+            if raw and request.headers.get('content-type', '').split(';')[0].strip() == 'application/json':
+                try:
+                    body = json.loads(raw)
+                except ValueError:
+                    body = None
+            native = Response()
+            path = sub.replace('<id>', request.path_params.get('cred_id', ''))
+            result = await anyio.to_thread.run_sync(lambda: relay.handle(
+                method, path, body=body,
+                ip=request.client.host if request.client else None,
+                user_agent=request.headers.get('user-agent'),
+                get_header=lambda name: request.headers.get(name),
+                request=request, response=native, run_async=_run_async,
+            ))
+            if result is None:
+                raise HTTPException(status_code=404)
+            out = JSONResponse(result.body, status_code=result.status, headers=result.headers)
+            out.raw_headers.extend(
+                (k, v) for k, v in native.raw_headers if k not in (b'content-length', b'content-type'))
+            return out
+        return endpoint
+
+    for method, sub in RELAY_ROUTES:
+        router.add_api_route(sub.replace('<id>', '{cred_id}'), make_endpoint(method, sub), methods=[method],
+                             include_in_schema=False)
+    return router

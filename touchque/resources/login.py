@@ -5,7 +5,7 @@ from typing import Dict, Any, List, Optional, Union
 LoginDetails = Union[Dict[str, Union[str, int, float]], List[Dict[str, Any]]]
 from urllib.parse import quote
 from ..http_client import HttpClient
-from ..exceptions import TouchQueTimeoutException, TouchQueRejectedException, TouchQuePasskeyRequiredError
+from ..exceptions import TouchQueTimeoutException, TouchQueRejectedException, TouchQuePasskeyRequiredError, TouchQueConfigException
 
 class Login:
     def __init__(self, http: HttpClient):
@@ -99,3 +99,24 @@ class Login:
         token, a retried form post) raises ``TouchQueAPIException`` with
         ``code='already_used'`` (409)."""
         return self._http.post(f"/login/{quote(request_id, safe='')}/consume", {})
+
+    FRAUD_REASONS = ('chargeback', 'account_takeover', 'social_engineering', 'other')
+
+    def report_fraud(self, request_id: str, reason: Optional[str] = None, note: Optional[str] = None) -> Dict[str, Any]:
+        """Report a request you later learned was fraud — a chargeback, a
+        confirmed account takeover, a scam the user was talked into. TouchQue's
+        risk engine learns from it (it is the strongest signal it gets) and the
+        report is kept in your audit log. The request's status does not change.
+        Safe to call more than once: a repeat answers ``alreadyReported: True``.
+
+        :param reason: one of ``Login.FRAUD_REASONS`` (default ``'other'``).
+        :param note: free text for your audit log, at most 500 characters.
+        """
+        if not request_id:
+            raise TouchQueConfigException('report_fraud() needs the request id')
+        payload: Dict[str, Any] = {}
+        if reason:
+            payload['reason'] = reason
+        if note:
+            payload['note'] = note
+        return self._http.post(f"/login/{quote(request_id, safe='')}/report-fraud", payload)
