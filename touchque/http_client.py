@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 from .config import Config
 from .exceptions import TouchQueAPIException, TouchQueNetworkException
 
-SDK_VERSION = '3.2.0'
+SDK_VERSION = '3.2.1'
 
 
 def _build_query(params: Optional[Dict[str, Any]]) -> str:

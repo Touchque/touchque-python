@@ -424,6 +424,9 @@ class _Ctx:
         result = run_guard(
             self.h.client, external_username, self.h.action_type,
             details=self.details(), ip=self.ip, user_agent=self.user_agent,
+            # Pre-auth: a typed username proves nothing, so no linking QR unless
+            # get_login_user ties this route to the password step.
+            enroll=bool(self.h.get_login_user),
             **guard_input_from_headers(self.get_header)
         )
         approved = result.get('approved')

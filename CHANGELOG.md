@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.2.1] — 2026-10-11
+
+### Security
+- **The pre-auth relay no longer hands out a first-time linking QR.** `RelayHandler`'s `POST /login` used to answer
+  an unlinked user with a linking QR code and recovery codes for whatever username was typed.
+  Anyone could scan that QR first and link their own phone to someone else's account. Now it
+  answers `{ state: 'enroll' }` without a QR unless `get_login_user` is set, i.e. unless the route
+  only runs after your own password step. Linking from a signed-in page (`/enroll/start`, the
+  step-up guard) is unchanged. Your own guards can opt out with `run_guard(..., enroll=False)`.
+
 ## [3.2.0] — 2026-10-11
 
 ### Added

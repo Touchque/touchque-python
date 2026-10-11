@@ -64,6 +64,7 @@ def run_guard(
     offline: bool = False,
     code: Optional[str] = None,
     code_type: Optional[str] = None,
+    enroll: bool = True,
 ) -> Dict[str, Any]:
     """Runs one step of the guard. Returns either
     ``{"approved": {...}, "status": 200}`` (run your protected action) or
@@ -166,7 +167,8 @@ def run_guard(
             return issue({'state': now['state'], 'requestId': bound['rid']})
 
         # Anything else (no/foreign token, enrollment finished, new attempt): start.
-        return issue(start(client, action, user, details=norm or None, reference_id=reference_id, ip=ip, user_agent=user_agent))
+        return issue(start(client, action, user, details=norm or None, reference_id=reference_id, ip=ip,
+                           user_agent=user_agent, enroll=enroll))
     except TouchQueConfigException as err:
         logger.error('[TouchQue] %s', err)
         return {'status': 500, 'body': {

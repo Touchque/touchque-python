@@ -124,6 +124,21 @@ def test_login_400_without_username(fake_api):
     assert res.body == {'error': 'externalUsername_required'}
 
 
+def test_pre_auth_login_never_hands_an_unlinked_user_a_linking_qr(fake_api):
+    res = call(make(real_tq(fake_api), rate_limit=False), 'POST', '/login', body={'externalUsername': 'new@example.com'})
+    assert res.status == 202
+    assert res.body['touchque']['state'] == 'enroll'
+    assert 'enroll' not in res.body['touchque']
+    assert not [c for c in fake_api.calls() if c['path'] == '/auth/generate-secret']
+
+
+def test_login_behind_the_password_step_still_offers_first_time_linking(fake_api):
+    h = make(real_tq(fake_api), rate_limit=False, get_login_user=lambda req: 'new@example.com')
+    res = call(h, 'POST', '/login', body={})
+    assert res.status == 202
+    assert res.body['touchque']['enroll']['qrCodeDataUrl']
+
+
 def test_login_202_then_approved_calls_on_authenticated_once(fake_api):
     fake_api.link('user@example.com')
     fake_api.opts(numberMatch=True)
