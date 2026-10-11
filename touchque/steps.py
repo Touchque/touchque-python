@@ -63,10 +63,15 @@ def start(client: 'TouchQue', action: str, user: str, details: Optional[LoginDet
         if res.get('requiresPasskey'):
             return {'state': 'passkey_required', 'requestId': res.get('requestId'),
                     'expiresAt': res.get('expiresAt'), 'details': norm or None}
-        return {
+        step = {
             'state': 'waiting', 'requestId': res.get('requestId'), 'number': res.get('challengeCode'),
             'expiresAt': res.get('expiresAt'), 'details': norm or None,
         }
+        if res.get('telemetryToken'):
+            # Only when the workspace collects behavioural signals: lets the browser post
+            # them for this one request (@touchque/web does it when given `telemetry`).
+            step['telemetryToken'] = res['telemetryToken']
+        return step
     except TouchQueAPIException as err:
         code = _err_code(err)
         if err.status == 404 and (code == 'device_not_linked' or 'linked device' in str(err).lower()):

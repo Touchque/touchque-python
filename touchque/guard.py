@@ -52,6 +52,24 @@ def guard_input_from_headers(get: Callable[[str], Optional[str]]) -> Dict[str, A
     }
 
 
+def is_status_poll(client: 'TouchQue', user: Optional[str], action: str, details: Optional[LoginDetails] = None,
+                   reference_id: Optional[str] = None, token: Optional[str] = None, offline: bool = False,
+                   code: Optional[str] = None, **_: Any) -> bool:
+    """True when this request only polls an approval that is already on its way:
+    a valid token bound to this user/action/details, still waiting, and no
+    offline switch or typed code. It can only read the status, never start a
+    push, so relays do not count it against the per-user push limit (with a
+    1.5 s poll the 6th poll was refused after 7.5 s)."""
+    if not user or not token or offline or code:
+        return False
+    claims = verify_guard_token(client._api_secret, token)
+    if not claims or not claims.get('rid'):
+        return False
+    return claims.get('u') == user and claims.get('a') == action \
+        and claims.get('d') == details_digest(details) and claims.get('r') == (reference_id or None) \
+        and claims.get('st') in ('waiting', 'passkey_required', 'offline')
+
+
 def run_guard(
     client: 'TouchQue',
     user: Optional[str],

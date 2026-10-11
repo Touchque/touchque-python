@@ -576,3 +576,43 @@ def test_async_callback_without_async_adapter_is_a_clear_error():
 
     with pytest.raises(TypeError):
         call(make(fake_tq(), get_user_id=get_user), 'GET', '/enroll/status')
+
+
+def test_polling_a_sent_push_is_not_counted_against_the_push_limit(fake_api):
+    # The browser polls every 1.5 s; with the default limiter the 6th poll used
+    # to be a 429 while the push was still on the phone.
+    fake_api.link('user@example.com')
+    h = make(real_tq(fake_api))
+    body = {'externalUsername': 'user@example.com'}
+    first = call(h, 'POST', '/login', body=body)
+    assert first.status == 202
+    for i in range(10):
+        if i == 9:
+            fake_api.approve()
+        res = call(h, 'POST', '/login', body=body, headers={'X-TouchQue-Token': first.body['token']})
+        assert res.status == (200 if i == 9 else 202), (i, res.status)
+    # New attempts still are: 4 more starts fill the per-user budget of 5.
+    for _ in range(4):
+        call(h, 'POST', '/login', body=body)
+    assert call(h, 'POST', '/login', body=body).status == 429
+    assert call(h, 'POST', '/login', body=body, headers={'X-TouchQue-Token': 'forged'}).status == 429
+
+
+def test_adding_a_passkey_needs_the_phone(fake_api):
+    # A passkey approves requests on its own, so a stolen session of the
+    # partner app must not be able to add one for a user with a linked phone.
+    h = make(real_tq(fake_api))
+    res = call(h, 'POST', '/passkey/register/options', body={})
+    assert res.status == 200 and res.body['challenge'] == 'reg-challenge'
+
+    fake_api.link('user@example.com')
+    first = call(h, 'POST', '/passkey/register/options', body={})
+    assert first.status == 202
+    assert first.body['touchque']['state'] == 'waiting' and first.body['touchque']['number'] == '47'
+    assert [c['body']['type'] for c in fake_api.calls() if c['path'] == '/login/request'] == ['PASSKEY_ENROLL']
+    token = {'X-TouchQue-Token': first.body['token']}
+    assert call(h, 'POST', '/passkey/register/options', body={}, headers=token).status == 202
+    fake_api.approve()
+    done = call(h, 'POST', '/passkey/register/options', body={}, headers=token)
+    assert done.status == 200 and done.body['challenge'] == 'reg-challenge'
+    assert call(h, 'POST', '/passkey/register/options', body={}, headers=token).status != 200

@@ -3,6 +3,30 @@
 All notable changes to this project will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.0] — 2026-10-12
+
+### Security
+- **Adding a passkey needs the phone.** `RelayHandler`'s `/passkey/register/options` used to hand out
+  registration options to anyone holding your app's session, and a passkey approves requests on its
+  own, so a stolen session cookie could become a permanent second factor. For a user with a linked
+  phone the route now answers the same two-phase step as `/login` (202 with the number to show; the
+  user approves a `PASSKEY_ENROLL` request on the phone) and returns the options only after that
+  approval, once. Users without a linked phone are unchanged. The TouchQue API enforces this too:
+  `webauthn.register_options` takes the approved request id as `approval_request_id`.
+- **Passkey delete needs the user.** The API now refuses `DELETE /webauthn/credentials/{id}` without
+  `externalUsername`: `webauthn.delete_credential(id, external_username=...)`.
+
+### Fixed
+- **Waiting on an approval no longer hits the rate limit.** Each browser poll of `/login` counted against
+  the per-user limit (5 a minute), so a user who took more than about 7.5 s to approve got a 429 while
+  the push was still on the phone. A poll that carries a valid, still-waiting token only reads the
+  status and now has its own per-IP budget; new attempts are counted as before.
+
+### Added
+- The waiting step carries `telemetryToken` when the workspace collects behavioural signals, so
+  `@touchque/web` can send them (pass `telemetry: { apiBaseUrl }` to `touchqueFetch`). Before, the token
+  never reached the browser and the bot and browser signals never ran for SDK integrations.
+
 ## [3.2.1] — 2026-10-11
 
 ### Security

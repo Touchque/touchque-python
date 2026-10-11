@@ -176,3 +176,12 @@ def test_guard_frozen_rate_limited_blocked(fake_api):
     blocked = run_guard(tq, 'jane@acme.com', 'LOGIN')
     assert blocked['status'] == 403
     assert blocked['body']['touchque'] == {'state': 'blocked', 'reason': 'geo_policy'}
+
+
+def test_waiting_step_carries_the_telemetry_token(fake_api):
+    # R1-04: the browser can only post behavioural signals with this token.
+    fake_api.link('tel@acme.com')
+    tq = client_for(fake_api)
+    assert 'telemetryToken' not in tq.start('LOGIN', 'tel@acme.com')
+    fake_api.opts(telemetry=True)
+    assert tq.start('LOGIN', 'tel@acme.com')['telemetryToken'] == 'tt_test'

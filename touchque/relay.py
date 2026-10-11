@@ -42,8 +42,13 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple, Union
 from .exceptions import (
     TouchQueAPIException, TouchQuePasskeyRequiredError, TouchQueRejectedException, TouchQueTimeoutException,
 )
-from .guard import guard_input_from_headers, run_guard
+from .guard import guard_input_from_headers, is_status_poll, run_guard
 from .rate_limiter import FixedWindowLimiter
+
+# A 1.5 s poll for a 2-minute push is 80 requests: one attempt's worth of polls.
+POLLS_PER_ATTEMPT = 10
+#: Reserved action: the approval on the phone that unlocks adding a passkey.
+PASSKEY_ENROLL_ACTION = 'PASSKEY_ENROLL'
 
 if TYPE_CHECKING:
     from .client import TouchQue
@@ -315,12 +320,12 @@ class _Ctx:
                            'allow_offline_without_first_factor) on the TouchQue relay.',
             }, 403))
 
-    def allow(self, route: str, user: Optional[str] = None) -> None:
+    def allow(self, route: str, user: Optional[str] = None, ip_factor: int = 1) -> None:
         """Answers 429 when this IP or this user is over the limit for ``route``."""
         limiter = self.h.limiter
         if limiter is None:
             return
-        ip_wait = limiter.hit('ip|%s|%s' % (route, self.ip or 'unknown'), limiter.per_ip)
+        ip_wait = limiter.hit('ip|%s|%s' % (route, self.ip or 'unknown'), limiter.per_ip * ip_factor)
         user_wait = limiter.hit('user|%s|%s' % (route, user), limiter.per_user) if user else 0
         wait = max(ip_wait, user_wait)
         if not wait:
@@ -418,16 +423,23 @@ class _Ctx:
     # ── classic push 2FA: login ─────────────────────────────────────────
     def login(self) -> RelayResponse:
         external_username = self.login_user('externalUsername')
-        self.allow('login', external_username)
+        details = self.details()
+        headers_in = guard_input_from_headers(self.get_header)
+        # Polling an approval already sent is not a new attempt: it has its own,
+        # larger per-IP budget and never uses the user's push budget.
+        if is_status_poll(self.h.client, external_username, self.h.action_type, details=details, **headers_in):
+            self.allow('login-poll', ip_factor=POLLS_PER_ATTEMPT)
+        else:
+            self.allow('login', external_username)
         # Same two-phase contract as the step-up guard: 202 with the step (matching number /
         # first-time QR / offline QR) until approved; the page re-sends with X-TouchQue-Token.
         result = run_guard(
             self.h.client, external_username, self.h.action_type,
-            details=self.details(), ip=self.ip, user_agent=self.user_agent,
+            details=details, ip=self.ip, user_agent=self.user_agent,
             # Pre-auth: a typed username proves nothing, so no linking QR unless
             # get_login_user ties this route to the password step.
             enroll=bool(self.h.get_login_user),
-            **guard_input_from_headers(self.get_header)
+            **headers_in
         )
         approved = result.get('approved')
         if not approved:
@@ -560,9 +572,34 @@ class _Ctx:
 
     # ── passkey: enrollment / management (auth required) ────────────────
     def passkey_register_options(self) -> RelayResponse:
+        """A user with a linked phone approves adding a passkey there first: a
+        passkey approves requests on its own, so a stolen session of your app
+        must not be able to add one. Same two-phase contract as /login: 202
+        with the step (and number to show) until approved, then the options."""
         user_id = self.require_user_id()
+        headers_in = guard_input_from_headers(self.get_header)
         try:
-            return _json(self.h.client.webauthn.register_options(user_id, discoverable=True))
+            if not headers_in.get('token'):
+                try:
+                    return _json(self.h.client.webauthn.register_options(user_id, discoverable=True))
+                except TouchQueAPIException as error:
+                    if not (error.status == 403 and error.code == 'enrollment_approval_required'):
+                        raise
+            if is_status_poll(self.h.client, user_id, PASSKEY_ENROLL_ACTION, **headers_in):
+                self.allow('login-poll', ip_factor=POLLS_PER_ATTEMPT)
+            else:
+                self.allow('passkey-enroll', user_id)
+            result = run_guard(self.h.client, user_id, PASSKEY_ENROLL_ACTION, ip=self.ip, user_agent=self.user_agent,
+                               enroll=False, **headers_in)
+            approved = result.get('approved')
+            if not approved:
+                headers = {'Cache-Control': 'no-store'}
+                retry = (result['body'].get('touchque') or {}).get('retryAfter')
+                if retry:
+                    headers['Retry-After'] = str(retry)
+                return _json(result['body'], result['status'], headers)
+            return _json(self.h.client.webauthn.register_options(
+                user_id, discoverable=True, approval_request_id=approved.get('requestId')))
         except Exception as error:  # noqa: BLE001
             return _relay_error(error)
 

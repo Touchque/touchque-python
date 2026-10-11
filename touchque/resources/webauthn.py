@@ -18,16 +18,25 @@ class WebAuthn:
         self._http = http
 
     # ── registration ────────────────────────────────────────────────────────
-    def register_options(self, external_username: str, discoverable: bool = False) -> Dict[str, Any]:
+    def register_options(self, external_username: str, discoverable: bool = False,
+                         approval_request_id: Optional[str] = None) -> Dict[str, Any]:
         """Step 1: options for ``navigator.credentials.create()``.
 
         ``discoverable=True`` registers a resident credential with forced user
         verification — the shape a passwordless-primary login authenticates
         against. Omit for a classic second-factor credential.
+
+        ``approval_request_id`` is required when the user has a linked phone
+        (the API answers 403 ``enrollment_approval_required`` otherwise): a
+        ``PASSKEY_ENROLL`` request the user approved on the phone, at most 10
+        minutes old, used once. The relay's /passkey/register/options runs
+        that approval for you.
         """
         body: Dict[str, Any] = {'externalUsername': external_username}
         if discoverable:
             body['discoverable'] = True
+        if approval_request_id:
+            body['approvalRequestId'] = approval_request_id
         return self._http.post('/webauthn/register/options', body)
 
     def register_verify(self, external_username: str, response: Dict[str, Any], label: Optional[str] = None) -> Dict[str, Any]:
