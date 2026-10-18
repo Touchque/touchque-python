@@ -3,6 +3,29 @@
 All notable changes to this project will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.4.0] — 2026-10-18
+
+### Added
+- **Vishing Shield.** When the user taps Approve during a call (or with the screen shared or the phone
+  remote-controlled), TouchQue can move the request to a passkey, refuse it, or approve it as provisional.
+  The approval dict from `complete()` and `login.verify()` carry `provisional`, `revoked`, `revokeReason` and
+  `reconfirmedAt`: a provisional approval lets the user in, but TouchQue refuses their critical actions
+  (`blocked` / `provisional`) until the phone re-confirms it after the call.
+- `WebhookReasons` and `WebhookEvents` for the webhook reasons (`vishing_suspected`, `phishing_origin`,
+  `user_reported_coached`, and the existing ones) and events (`APPROVAL_RECONFIRMED`, `APPROVAL_REVOKED`, and
+  the existing ones).
+- **Mirror Alarm.** The first waiting step carries `step['canary']`; `@touchque/web` 1.3.0 loads it on the page
+  that shows the sign-in, so a real-time phishing proxy gets the approval refused (`phishing_origin`). Allow
+  the canary host in your CSP (`img-src`, `connect-src`).
+
+### Changed (behaviour)
+- **`login.verify()` raises `TouchQuePasskeyRequiredError` (`reason == 'step_up'`) when a poll shows the request now needs a passkey** (PENDING with
+  `requiresPasskey`), instead of polling into a timeout. Finish it in the browser with `@touchque/web`. The
+  error has a new `reason` attribute (`'policy'` for the passkey-only policy, as before).
+- The guard switches a waiting offline QR to `passkey_required` when its push moved to a passkey, and an
+  offline code TouchQue refuses for that reason answers `passkey_required` instead of `blocked`.
+- An approval the user took back on the phone answers the guard with `expired` / `revoked`.
+
 ## [3.3.0] — 2026-10-12
 
 ### Security

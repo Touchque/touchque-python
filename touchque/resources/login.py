@@ -51,7 +51,12 @@ class Login:
         return self._http.get(f"/login/status/{quote(request_id, safe='')}")
 
     def verify(self, external_username: str, type: str = 'LOGIN', reference_id: Optional[str] = None, client_ip: Optional[str] = None, user_agent: Optional[str] = None, require_biometric: bool = False, require_number_match: bool = False, timeout_ms: int = 30000, details: Optional[LoginDetails] = None) -> Dict[str, Any]:
-        """Request a login and wait (poll) until the user approves or rejects it."""
+        """Request a login and wait (poll) until the user approves or rejects it.
+
+        Raises ``TouchQuePasskeyRequiredError`` when a passkey must approve it:
+        a phishing-resistant policy (``reason='policy'``, no push sent), or the
+        user tapped Approve during a call (``reason='step_up'``, Vishing Shield):
+        finish it in the browser with ``@touchque/web``."""
         request_result = self.request(external_username, type, reference_id, client_ip, user_agent, require_biometric, require_number_match, details)
         request_id = request_result['requestId']
         if request_result.get('requiresPasskey'):
@@ -72,6 +77,8 @@ class Login:
                     'challengeCode': request_result.get('challengeCode'),
                     'assurance': status_result.get('assurance'),
                     'confirmedVia': status_result.get('confirmedVia'),
+                    # Vishing Shield: approved during a call; critical actions wait for the phone to re-confirm.
+                    'provisional': bool(status_result.get('provisional')),
                 }
 
             if status == 'REJECTED':
@@ -79,6 +86,10 @@ class Login:
 
             if status == 'EXPIRED':
                 raise TouchQueTimeoutException(f"Request {request_id} expired before it was approved.")
+
+            # Vishing Shield: tapped during a call, the request now waits for a passkey in the browser.
+            if status == 'PENDING' and status_result.get('requiresPasskey'):
+                raise TouchQuePasskeyRequiredError(request_id, 'step_up')
 
             elapsed = (time.time() * 1000) - start_time
             if elapsed > timeout_ms:

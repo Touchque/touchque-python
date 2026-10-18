@@ -14,6 +14,36 @@ from ..exceptions import TouchQueWebhookReplayException, TouchQueWebhookSignatur
 DEFAULT_TOLERANCE_SECONDS = 300
 
 
+class WebhookReasons:
+    """``reason`` values of a REJECTED login webhook. Treat a value you do not
+    know as a rejection: new ones are added in minor versions."""
+    USER_REJECTED = 'user_rejected'
+    #: The user said "this wasn't me": 2FA is frozen.
+    USER_REPORTED_FRAUD = 'user_reported_fraud'
+    #: The user said someone on the phone told them to approve: 2FA is frozen; treat it as a takeover in progress.
+    USER_REPORTED_COACHED = 'user_reported_coached'
+    RISK_REVERSED = 'risk_reversed'
+    RISK_STEP_UP = 'risk_step_up'
+    APPROVAL_SIGNATURE_INVALID = 'approval_signature_invalid'
+    DEVICE_INTEGRITY_FAILED = 'device_integrity_failed'
+    #: Vishing Shield: approved during a call (or with the screen shared / remote-controlled), critical, no passkey.
+    VISHING_SUSPECTED = 'vishing_suspected'
+    #: Mirror Alarm: the sign-in page was not on your site (a real-time phishing proxy).
+    PHISHING_ORIGIN = 'phishing_origin'
+
+
+class WebhookEvents:
+    """``event`` values of TouchQue's event webhooks. Ignore types you do not know."""
+    DEVICE_LINKED = 'DEVICE_LINKED'
+    DEVICE_UNLINKED = 'DEVICE_UNLINKED'
+    PASSKEY_REGISTERED = 'PASSKEY_REGISTERED'
+    PASSKEY_DELETED = 'PASSKEY_DELETED'
+    #: After the call, the user confirmed a provisional approval was theirs: critical actions are allowed again.
+    APPROVAL_RECONFIRMED = 'APPROVAL_RECONFIRMED'
+    #: The user took an approval back (``reason``: ``COACHED`` or ``UNDO``): end the session built on it.
+    APPROVAL_REVOKED = 'APPROVAL_REVOKED'
+
+
 class ReplayCache:
     """
     Storage for webhook ``jti`` values already accepted. ``check_and_set``

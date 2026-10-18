@@ -89,3 +89,25 @@ def test_request_forwards_details_for_the_approval_screen():
         {"externalUsername": "a@b.com", "type": "WITHDRAW", "clientIp": "203.0.113.7",
          "details": {"Amount": "1,250.00 USD", "Recipient": "Jane Doe"}},
     )
+
+
+@patch("touchque.resources.login.time.sleep", return_value=None)
+def test_verify_raises_passkey_required_when_the_request_moves_to_a_passkey_mid_flight(_sleep):
+    # Vishing Shield: the user tapped Approve during a call; the request is still open for a passkey.
+    from touchque import TouchQuePasskeyRequiredError
+    http = MagicMock()
+    http.post.return_value = {"requestId": "req_1", "message": "ok", "expiresAt": "t"}
+    http.get.side_effect = [{"status": "PENDING"}, {"status": "PENDING", "requiresPasskey": True}]
+    with pytest.raises(TouchQuePasskeyRequiredError) as err:
+        Login(http).verify("a@b.com")
+    assert err.value.request_id == "req_1"
+    assert err.value.reason == "step_up"
+
+
+def test_webhook_reason_and_event_constants():
+    from touchque import WebhookReasons, WebhookEvents
+    assert WebhookReasons.VISHING_SUSPECTED == 'vishing_suspected'
+    assert WebhookReasons.PHISHING_ORIGIN == 'phishing_origin'
+    assert WebhookReasons.USER_REPORTED_COACHED == 'user_reported_coached'
+    assert WebhookEvents.APPROVAL_REVOKED == 'APPROVAL_REVOKED'
+    assert WebhookEvents.APPROVAL_RECONFIRMED == 'APPROVAL_RECONFIRMED'

@@ -185,3 +185,57 @@ def test_waiting_step_carries_the_telemetry_token(fake_api):
     assert 'telemetryToken' not in tq.start('LOGIN', 'tel@acme.com')
     fake_api.opts(telemetry=True)
     assert tq.start('LOGIN', 'tel@acme.com')['telemetryToken'] == 'tt_test'
+
+
+# ── Vishing Shield ──────────────────────────────────────────────────────
+
+def test_first_waiting_step_carries_the_mirror_canary_polls_do_not(fake_api):
+    fake_api.link('jane@acme.com')
+    tq = client_for(fake_api)
+    assert 'canary' not in tq.start('LOGIN', 'jane@acme.com')
+    fake_api.opts(canary=True)
+    first = run_guard(tq, 'jane@acme.com', 'LOGIN')
+    assert first['body']['touchque']['canary']['url'].endswith('.gif')
+    poll = run_guard(tq, 'jane@acme.com', 'LOGIN', token=first['body']['token'])
+    assert poll['body']['touchque']['state'] == 'waiting'
+    assert 'canary' not in poll['body']['touchque']
+
+
+def test_push_tapped_during_a_call_becomes_passkey_required_also_from_the_offline_qr(fake_api):
+    fake_api.link('jane@acme.com')
+    tq = client_for(fake_api)
+    first = run_guard(tq, 'jane@acme.com', 'LOGIN')
+    rid = first['body']['touchque']['requestId']
+    offline = run_guard(tq, 'jane@acme.com', 'LOGIN', token=first['body']['token'], offline=True)
+    assert offline['body']['touchque']['state'] == 'offline'
+    fake_api.escalate()
+    poll = run_guard(tq, 'jane@acme.com', 'LOGIN', token=offline['body']['token'])
+    assert poll['status'] == 202
+    assert poll['body']['touchque']['state'] == 'passkey_required'
+    assert poll['body']['touchque']['requestId'] == rid
+    typed = run_guard(tq, 'jane@acme.com', 'LOGIN', token=offline['body']['token'], code='ABCD123')
+    assert typed['body']['touchque']['state'] == 'passkey_required'
+
+
+def test_provisional_approval_and_the_critical_action_lock(fake_api):
+    fake_api.link('jane@acme.com')
+    tq = client_for(fake_api)
+    step = tq.start('LOGIN', 'jane@acme.com')
+    fake_api.approve(provisional=True)
+    approval = tq.complete(step['requestId'], 'jane@acme.com', 'LOGIN')
+    assert approval['provisional'] is True
+    assert approval['revoked'] is False
+    assert tq.start('SEND_MONEY', 'jane@acme.com') == {'state': 'blocked', 'reason': 'provisional'}
+    fake_api.reconfirm(step['requestId'])
+    assert tq.start('SEND_MONEY', 'jane@acme.com')['state'] == 'waiting'
+
+
+def test_an_approval_taken_back_is_never_used(fake_api):
+    fake_api.link('jane@acme.com')
+    tq = client_for(fake_api)
+    first = run_guard(tq, 'jane@acme.com', 'LOGIN')
+    fake_api.approve()
+    fake_api.revoke(reason='COACHED')
+    done = run_guard(tq, 'jane@acme.com', 'LOGIN', token=first['body']['token'])
+    assert done['status'] == 408
+    assert done['body']['touchque'] == {'state': 'expired', 'reason': 'revoked'}

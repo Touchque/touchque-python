@@ -42,8 +42,18 @@ class FakeApi:
     def opts(self, **kwargs):
         self._call('/__test/opts', kwargs)
 
-    def approve(self, id: Optional[str] = None, via: str = 'DEVICE'):
-        self._call('/__test/approve', {'id': id, 'via': via})
+    def approve(self, id: Optional[str] = None, via: str = 'DEVICE', provisional: bool = False):
+        self._call('/__test/approve', {'id': id, 'via': via, 'provisional': provisional})
+
+    def escalate(self, id: Optional[str] = None):
+        """Vishing Shield: the phone tap moved the request to a passkey (still PENDING)."""
+        self._call('/__test/escalate', {'id': id})
+
+    def revoke(self, id: Optional[str] = None, reason: str = 'COACHED'):
+        self._call('/__test/revoke', {'id': id, 'reason': reason})
+
+    def reconfirm(self, id: Optional[str] = None):
+        self._call('/__test/reconfirm', {'id': id})
 
     def reject(self, id: Optional[str] = None):
         self._call('/__test/reject', {'id': id})

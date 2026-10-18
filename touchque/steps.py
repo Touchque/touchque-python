@@ -60,9 +60,14 @@ def start(client: 'TouchQue', action: str, user: str, details: Optional[LoginDet
             user, type=action, reference_id=reference_id, client_ip=ip, user_agent=user_agent,
             details=norm or None,
         )
+        canary = res.get('canary')
+        canary = {'url': canary['url']} if isinstance(canary, dict) and isinstance(canary.get('url'), str) else None
         if res.get('requiresPasskey'):
-            return {'state': 'passkey_required', 'requestId': res.get('requestId'),
+            step = {'state': 'passkey_required', 'requestId': res.get('requestId'),
                     'expiresAt': res.get('expiresAt'), 'details': norm or None}
+            if canary:
+                step['canary'] = canary
+            return step
         step = {
             'state': 'waiting', 'requestId': res.get('requestId'), 'number': res.get('challengeCode'),
             'expiresAt': res.get('expiresAt'), 'details': norm or None,
@@ -71,6 +76,10 @@ def start(client: 'TouchQue', action: str, user: str, details: Optional[LoginDet
             # Only when the workspace collects behavioural signals: lets the browser post
             # them for this one request (@touchque/web does it when given `telemetry`).
             step['telemetryToken'] = res['telemetryToken']
+        if canary:
+            # Mirror Alarm: the page showing this step loads the canary (@touchque/web does it), so
+            # a phishing proxy in front of your site gets the approval refused. Only on this first step.
+            step['canary'] = canary
         return step
     except TouchQueAPIException as err:
         code = _err_code(err)
@@ -146,7 +155,7 @@ def complete(client: 'TouchQue', request_id: str, user: str, action: str,
     same_ref = (res.get('referenceId') or None) == (reference_id or None)
     if not same_user or res.get('type') != action or not same_details or not same_ref:
         raise TouchQueException('TouchQue: this approval is for a different user, action or transaction.')
-    return {
+    approval = {
         'requestId': request_id,
         'user': res.get('externalUsername'),
         'action': res.get('type'),
@@ -154,6 +163,14 @@ def complete(client: 'TouchQue', request_id: str, user: str, action: str,
         'confirmedVia': res.get('confirmedVia'),
         'approvalProof': res.get('approvalProof'),
     }
+    if 'provisional' in res:
+        # Vishing Shield: approved during a call. Let the user in, but treat the session as limited:
+        # critical actions are refused until APPROVAL_RECONFIRMED, and APPROVAL_REVOKED means end it.
+        approval.update({
+            'provisional': bool(res.get('provisional')), 'revoked': bool(res.get('revoked')),
+            'revokeReason': res.get('revokeReason'), 'reconfirmedAt': res.get('reconfirmedAt'),
+        })
+    return approval
 
 
 # ── Guard token ──────────────────────────────────────────────────────────

@@ -139,6 +139,9 @@ def run_guard(
             # The phone rejected the push this QR belongs to: the whole sign-in is over.
             if res.get('reason') == 'request_rejected':
                 return issue({'state': 'rejected', 'requestId': bound.get('rid'), 'reason': 'request_rejected'})
+            # The push now waits for a passkey (Vishing Shield): no code may finish it.
+            if res.get('reason') == 'passkey_required' and bound.get('rid'):
+                return issue({'state': 'passkey_required', 'requestId': bound['rid'], 'number': bound.get('n')}, {'n': bound.get('n')})
             return issue({'state': 'expired' if res.get('reason') == 'expired' else 'blocked',
                            'reason': res.get('reason') or 'offline_failed'})
 
@@ -160,6 +163,9 @@ def run_guard(
             except TouchQueAPIException as err:
                 if err.status == 409 and (err.code or (err.data or {}).get('error')) == 'request_rejected':
                     return issue({'state': 'rejected', 'requestId': (bound or {}).get('rid'), 'reason': 'request_rejected'})
+                # The push it would follow now waits for a passkey (Vishing Shield): no QR, run the passkey.
+                if (bound or {}).get('rid') and (err.code or (err.data or {}).get('error')) == 'passkey_required':
+                    return issue({'state': 'passkey_required', 'requestId': bound['rid'], 'number': bound.get('n')}, {'n': bound.get('n')})
                 if err.status is not None and err.status < 500:
                     return issue({'state': 'blocked', 'reason': err.code or (err.data or {}).get('error') or 'offline_unavailable'})
                 raise
@@ -176,7 +182,11 @@ def run_guard(
                     if err.status == 409:
                         return issue({'state': 'expired', 'reason': err.code or 'already_used'})
                     raise
-            if bound.get('st') == 'offline' and now['state'] in ('waiting', 'expired', 'passkey_required'):
+            # The push behind the QR was moved to a passkey after a tap during a call (Vishing Shield):
+            # the QR's code would be refused now, so switch to the passkey.
+            if bound.get('st') == 'offline' and now['state'] == 'passkey_required':
+                return issue({'state': 'passkey_required', 'requestId': bound['rid'], 'number': bound.get('n')}, {'n': bound.get('n')})
+            if bound.get('st') == 'offline' and now['state'] in ('waiting', 'expired'):
                 # Still (or no longer) pending: nothing changed for the user — keep showing the QR they have.
                 return issue({'state': 'offline', 'offline': {'challengeId': str(bound.get('oc'))}},
                              {'oc': bound.get('oc'), 'rid': bound['rid'], 'n': bound.get('n')})

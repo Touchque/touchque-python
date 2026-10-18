@@ -71,12 +71,20 @@ class TouchQueConfigException(TouchQueException):
 
 
 class TouchQuePasskeyRequiredError(TouchQueException):
-    """Raised when a phishing-resistant policy requires the request to be
-    approved with a passkey — no push was sent."""
+    """Raised when the request must be approved with a passkey.
 
-    def __init__(self, request_id: str):
-        super().__init__(
-            f"TouchQue: request '{request_id}' must be approved with a passkey "
-            "(phishing-resistant policy); no push was sent."
-        )
+    ``reason`` is ``'policy'`` when a phishing-resistant policy requires it (no
+    push was sent), or ``'step_up'`` when the user tapped Approve on the phone
+    during a call (Vishing Shield) and the request, still open, now waits for
+    a passkey in the browser."""
+
+    def __init__(self, request_id: str, reason: str = 'policy'):
+        if reason == 'step_up':
+            message = (f"TouchQue: request '{request_id}' must now be approved with a passkey: "
+                       "the user approved on the phone during a call.")
+        else:
+            message = (f"TouchQue: request '{request_id}' must be approved with a passkey "
+                       "(phishing-resistant policy); no push was sent.")
+        super().__init__(message)
         self.request_id = request_id
+        self.reason = reason
