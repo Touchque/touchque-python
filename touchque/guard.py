@@ -12,10 +12,12 @@ Request headers the browser sends back:
   X-TouchQue-Offline: 1    switch to offline approval (phone has no internet)
   X-TouchQue-Code          the code from the phone (offline QR code, or with
   X-TouchQue-Code-Type: totp   the rolling time-based code)
+  X-TouchQue-Browser       the browser's device-bound key proof (silent sign-ins,
+                           read only when the adapter's ``silent_sign_in`` is on)
 """
 import logging
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Union
 
 from .exceptions import TouchQueAPIException, TouchQueConfigException, TouchQueNetworkException
 from .steps import (
@@ -34,6 +36,21 @@ TOKEN_HEADER = 'x-touchque-token'
 OFFLINE_HEADER = 'x-touchque-offline'
 CODE_HEADER = 'x-touchque-code'
 CODE_TYPE_HEADER = 'x-touchque-code-type'
+BROWSER_HEADER = 'x-touchque-browser'
+
+#: A real browser proof is a few hundred characters; anything far larger is not one.
+MAX_BROWSER_PROOF = 4096
+
+#: ``silent_sign_in``: ``True``, or ``{'max_age_seconds': n}`` for your own limit
+#: on the age of the last phone approval in the browser (``0`` = always ask;
+#: TouchQue never goes beyond its own limit, 7 days).
+SilentSignIn = Union[bool, Dict[str, Any], None]
+
+
+def _silent_on(option: SilentSignIn) -> bool:
+    # A dict turns it on even when empty (``{}``: TouchQue's own limit only).
+    return isinstance(option, dict) or bool(option)
+
 
 _STATUS = {
     'waiting': 202, 'enroll': 202, 'passkey_required': 202, 'offline': 202,
@@ -50,6 +67,14 @@ def guard_input_from_headers(get: Callable[[str], Optional[str]]) -> Dict[str, A
         'code': get(CODE_HEADER) or None,
         'code_type': get(CODE_TYPE_HEADER) or None,
     }
+
+
+def silent_input_from_headers(option: SilentSignIn, get: Callable[[str], Optional[str]]) -> Dict[str, Any]:
+    """The ``run_guard`` keyword arguments an adapter adds for silent sign-ins:
+    the ``X-TouchQue-Browser`` proof, read only when ``option`` is on."""
+    if not _silent_on(option):
+        return {}
+    return {'silent_sign_in': option, 'browser_proof': get(BROWSER_HEADER) or None}
 
 
 def is_status_poll(client: 'TouchQue', user: Optional[str], action: str, details: Optional[LoginDetails] = None,
@@ -83,11 +108,25 @@ def run_guard(
     code: Optional[str] = None,
     code_type: Optional[str] = None,
     enroll: bool = True,
+    browser_proof: Optional[str] = None,
+    silent_sign_in: SilentSignIn = False,
 ) -> Dict[str, Any]:
     """Runs one step of the guard. Returns either
     ``{"approved": {...}, "status": 200}`` (run your protected action) or
     ``{"status": <code>, "body": {"touchque": step, "token": ...}}``
     (send that JSON body with that status code).
+
+    ``browser_proof``: the browser's device-bound key proof
+    (``X-TouchQue-Browser``), passed through untouched and attached to the
+    push, so its approval makes the browser known.
+
+    ``silent_sign_in`` (default off): a new attempt that carries
+    ``browser_proof`` first asks TouchQue (``risk.check``); when it answers
+    exactly ``prompt: False`` the guard approves at once, with no push
+    (``assurance['method'] == 'silent'``, ``confirmedVia == 'SILENT'``,
+    ``requestId == 'silent'``, ``reasons``). Otherwise, and on any error in
+    the check, the usual push starts. ``{'max_age_seconds': n}`` sets your own
+    limit on how long ago the last phone approval in that browser may be.
     """
     if not user:
         return {'status': 401, 'body': {
@@ -195,8 +234,14 @@ def run_guard(
             return issue({'state': now['state'], 'requestId': bound['rid']})
 
         # Anything else (no/foreign token, enrollment finished, new attempt): start.
+        proof = browser_proof if isinstance(browser_proof, str) and browser_proof \
+            and len(browser_proof) <= MAX_BROWSER_PROOF else None
+        if proof and _silent_on(silent_sign_in):
+            silent = _silent_approval(client, user, action, proof, ip, user_agent, silent_sign_in)
+            if silent:
+                return {'status': 200, 'approved': silent}
         return issue(start(client, action, user, details=norm or None, reference_id=reference_id, ip=ip,
-                           user_agent=user_agent, enroll=enroll))
+                           user_agent=user_agent, enroll=enroll, browser_proof=proof))
     except TouchQueConfigException as err:
         logger.error('[TouchQue] %s', err)
         return {'status': 500, 'body': {
@@ -209,3 +254,28 @@ def run_guard(
             'touchque': {'state': 'blocked', 'reason': 'unavailable'},
             'error': {'code': 'unavailable', 'message': 'Two-factor approval is temporarily unavailable.'},
         }}
+
+
+def _silent_approval(client: 'TouchQue', user: str, action: str, browser_proof: str, ip: Optional[str],
+                     user_agent: Optional[str], silent_sign_in: SilentSignIn) -> Optional[Dict[str, Any]]:
+    """Asks TouchQue whether this known browser may sign in without the phone.
+    Fails closed: only an answer of exactly ``prompt: False`` approves; any
+    error (network, 4xx, 5xx, a server without silent sign-ins) means "ask as
+    usual" and returns ``None``."""
+    try:
+        max_age = silent_sign_in.get('max_age_seconds') if isinstance(silent_sign_in, dict) else None
+        res = client.risk.check(user, type=action, client_ip=ip, user_agent=user_agent,
+                                browser_proof=browser_proof, max_age_seconds=max_age)
+        if not isinstance(res, dict) or res.get('prompt') is not False:
+            return None
+        reasons = res.get('reasons')
+        return {
+            'requestId': 'silent', 'user': user, 'action': action,
+            'assurance': {'phishingResistant': False, 'method': 'silent'},
+            'confirmedVia': 'SILENT', 'approvalProof': None,
+            # Why TouchQue let this known browser in; nothing was sent to the phone.
+            'reasons': reasons if isinstance(reasons, list) else [],
+        }
+    except Exception as err:  # noqa: BLE001 - fail closed: any error asks on the phone as usual
+        logger.warning('[TouchQue] silent sign-in check failed, asking on the phone: %s', err)
+        return None

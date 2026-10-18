@@ -53,7 +53,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
 from ..client import TouchQue, get_default_client
-from ..guard import guard_input_from_headers, run_guard
+from ..guard import SilentSignIn, guard_input_from_headers, run_guard, silent_input_from_headers
 from ..relay import RELAY_ROUTES, RelayHandler
 from ..steps import LoginDetails
 
@@ -73,11 +73,22 @@ def RequireTouchQue(  # noqa: N802 — reads as a dependency factory, PascalCase
     user: Optional[Callable[[Request], Any]] = None,
     details: Optional[Callable[[Request], Optional[LoginDetails]]] = None,
     reference_id: Optional[Callable[[Request], Any]] = None,
+    silent_sign_in: SilentSignIn = False,
 ) -> Callable[[Request], Any]:
     """
     ``user``: async or sync callable resolving who is approving from the
     request. Default: ``request.state.user``. For the login step, return the
     user who just passed your password check.
+
+    ``silent_sign_in`` (default off): when on, a new attempt whose browser
+    sent its device-bound key proof (``X-TouchQue-Browser``, added by
+    ``@touchque/web`` with ``browserKey: true``) first asks TouchQue whether
+    anything about it is new. If nothing is, the dependency resolves at once
+    with no push (``approval['assurance']['method'] == 'silent'``,
+    ``approval['reasons']``). Otherwise, and on any error, the usual push
+    starts and its approval makes the browser known.
+    ``{'max_age_seconds': n}`` sets your own limit on how long ago the last
+    phone approval in that browser may be.
     """
     user_of = user or _default_user
     tq = client
@@ -99,6 +110,7 @@ def RequireTouchQue(  # noqa: N802 — reads as a dependency factory, PascalCase
             ip=request.client.host if request.client else None,
             user_agent=request.headers.get('user-agent'),
             **guard_input_from_headers(lambda name: request.headers.get(name)),
+            **silent_input_from_headers(silent_sign_in, lambda name: request.headers.get(name)),
         ))
         if 'approved' in result:
             return result['approved']

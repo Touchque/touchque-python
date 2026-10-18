@@ -63,6 +63,16 @@ class FakeApi:
         with urllib.request.urlopen(self.base_url + '/__test/calls') as resp:
             return json.loads(resp.read())
 
+    def paths(self):
+        """The API paths called so far, in order (test controls excluded)."""
+        return [c['path'] for c in self.calls()]
+
+    def last_check(self):
+        """Silent sign-ins: the body of the last POST /risk/check, or None."""
+        import urllib.request
+        with urllib.request.urlopen(self.base_url + '/__test/last-check') as resp:
+            return json.loads(resp.read())
+
     def close(self):
         self._proc.terminate()
         self._proc.wait(timeout=5)

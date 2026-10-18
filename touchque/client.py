@@ -6,6 +6,7 @@ from .resources.actions import Actions
 from .resources.auth import Auth
 from .resources.login import Login
 from .resources.offline import Offline
+from .resources.risk import Risk
 from .resources.webauthn import WebAuthn
 from .resources.webhook import Webhook
 from .steps import LoginDetails, check as _check, complete as _complete, start as _start
@@ -35,17 +36,22 @@ class TouchQue:
         self.webhook = Webhook(self.config)
         self.offline = Offline(http)
         self.actions = Actions(http)
+        #: Silent sign-ins: should this sign-in ask the phone, and which browsers TouchQue knows.
+        self.risk = Risk(http)
 
     # ── headless step-up (see touchque.steps / touchque.guard) ─────────────
 
     def start(self, action: str, user: str, details: Optional[LoginDetails] = None,
               reference_id: Optional[str] = None, ip: Optional[str] = None,
-              user_agent: Optional[str] = None) -> Dict[str, Any]:
+              user_agent: Optional[str] = None, browser_proof: Optional[str] = None) -> Dict[str, Any]:
         """Starts an approval and returns immediately — show the step in your
         UI. ``waiting`` + ``number``: show the number, the user picks it on
         the phone. ``enroll``: show ``enroll['qrCodeDataUrl']`` so the user
-        links the TouchQue app first."""
-        return _start(self, action, user, details=details, reference_id=reference_id, ip=ip, user_agent=user_agent)
+        links the TouchQue app first. ``browser_proof``: the browser's
+        ``X-TouchQue-Browser`` proof, so the approval makes the browser known
+        (silent sign-ins, see ``risk.check``)."""
+        return _start(self, action, user, details=details, reference_id=reference_id, ip=ip, user_agent=user_agent,
+                      browser_proof=browser_proof)
 
     def check(self, request_id: str) -> Dict[str, Any]:
         """Where a started approval is now: waiting, approved, rejected, expired…"""

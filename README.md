@@ -113,7 +113,8 @@ response, info)` also gets the response that will be sent, so it can call
 `response.set_cookie(...)`. Other options: `rate_limit` (on by default: 20 per
 IP and 5 per username per route per minute; a dict with `window_ms` /
 `per_ip` / `per_user`, or `False`), `action_type` (default `'LOGIN'`),
-`get_details` and `allow_offline_without_first_factor`. Without a framework,
+`get_details`, `allow_offline_without_first_factor` and `silent_sign_in` (see
+[Silent sign-ins](#silent-sign-ins-stop-asking-when-nothing-is-new)). Without a framework,
 call `touchque.RelayHandler(...).handle(method, path, body=..., ...)` and
 send the `RelayResponse` it returns.
 
@@ -210,6 +211,65 @@ was shared or the phone remote-controlled when the user tapped Approve. Dependin
 sign-in and sends a beacon to it, so a real-time phishing proxy in front of your site shows up as itself: the
 approval is refused (`reason: phishing_origin`) and the phone warns the user. Allow the canary host in your
 Content-Security-Policy (`img-src` and `connect-src`).
+
+## Silent sign-ins (stop asking when nothing is new)
+
+A user who approved on their phone in this browser a little while ago, from the same phone, network and country,
+with no risk signal since, does not need another push. TouchQue's risk engine decides; your server only skips the
+push when it says so.
+
+1. In the browser, `@touchque/web` 1.4.0 with `createTouchQueWeb({ browserKey: true })` keeps a non-extractable
+   key for your site and sends a fresh, signed proof of it in the `X-TouchQue-Browser` header.
+2. On the server, turn on `silent_sign_in`:
+
+```python
+# Flask (Django's require_touchque and FastAPI's RequireTouchQue take the same option)
+@app.post('/login/2fa')
+@require_touchque('LOGIN', user=lambda: session.get('password_ok'), silent_sign_in=True)
+def login_2fa():
+    # g.touchque['assurance']['method'] is 'silent' when no push was needed.
+    return jsonify(ok=True)
+
+# Relay POST /login
+app.register_blueprint(touchque_relay_blueprint(
+    tq,
+    get_user_id=lambda req: session.get('user'),
+    get_login_user=lambda req: session.get('password_ok'),
+    silent_sign_in=True,  # or {'max_age_seconds': 8 * 3600} for your own limit
+), url_prefix='/touchque')
+```
+
+With it on, a new attempt that carries the header first calls `tq.risk.check`. Only an answer of exactly
+`prompt: false` approves it at once, with nothing sent to the phone: the approval has
+`assurance == {'phishingResistant': False, 'method': 'silent'}`, `confirmedVia == 'SILENT'`,
+`requestId == 'silent'` and `reasons` (`known_browser`, `recent_approval`, `same_phone`, `familiar_network`,
+`no_risk_signal`); the relay calls `on_authenticated` with `via: 'silent'`. Anything else, and any error in the
+check, starts the usual push with the proof attached, so its approval makes the browser known. Polling with the
+token never checks again. `run_guard(..., browser_proof=..., silent_sign_in=True)` does the same for your own
+framework (`silent_input_from_headers` reads the header).
+
+TouchQue only lets a sign-in through silently when all of this holds: the browser proved its key and was approved
+on the phone (a confirmed push, not one approved during a call, or a passkey) within your `max_age_seconds` and at
+most 7 days ago, by the phone that is linked now; the country and the network were seen in the user's earlier
+approved sign-ins; the risk engine allows it with no risk signal; and the action is an everyday one. A critical
+action always asks. In `shadow` mode (`silentMode`) it always asks and the reasons say what would have happened.
+
+Without the adapters:
+
+```python
+browser_proof = request.headers.get('X-TouchQue-Browser')
+risk = tq.risk.check(user, type='LOGIN', client_ip=request.remote_addr, browser_proof=browser_proof)
+if risk['prompt'] is False:
+    return open_session(user)  # risk['reasons'] say why
+step = tq.start('LOGIN', user, ip=request.remote_addr, browser_proof=browser_proof)  # the approval makes the browser known
+
+browsers = tq.risk.browsers(user)['browsers']  # for an "approved browsers" list
+tq.risk.forget_browsers(user)                  # all; or thumbprint=... for one
+```
+
+Forget a user's browsers after a password reset or a "sign out everywhere". `risk.check` reads the answer
+fail-closed (`parse_risk_check`): `prompt` is `False` only when TouchQue answered the boolean `false`; malformed
+`reasons` become `[]` and a missing `assurance` is `'normal'`.
 
 ## Verifying the device proof (no need to trust TouchQue)
 

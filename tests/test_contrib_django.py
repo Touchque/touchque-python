@@ -42,3 +42,24 @@ def test_full_flow(fake_api):
                          HTTP_X_USER='jane@acme.com', HTTP_X_TOUCHQUE_TOKEN=body['token']))
     assert done.status_code == 200
     assert json.loads(done.content)['done'] is True
+
+
+def test_silent_sign_in_runs_the_view_at_once_for_a_known_browser(fake_api):
+    from .silent_vectors import PROOF
+    from django.http import JsonResponse
+
+    fake_api.link('jane@acme.com')
+    fake_api.opts(silent=True)
+    tq = TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
+
+    @require_touchque('LOGIN', client=tq, user=lambda req: 'jane@acme.com', silent_sign_in=True)
+    def login(request):
+        return JsonResponse({'done': True, 'touchque': request.touchque})
+
+    res = login(RequestFactory().post('/login/2fa', data=b'{}', content_type='application/json',
+                                      HTTP_X_TOUCHQUE_BROWSER=PROOF))
+    assert res.status_code == 200
+    body = json.loads(res.content)
+    assert body['touchque']['confirmedVia'] == 'SILENT'
+    assert [r['code'] for r in body['touchque']['reasons']][0] == 'known_browser'
+    assert fake_api.last_check()['browserProof'] == PROOF

@@ -3,6 +3,28 @@
 All notable changes to this project will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.5.0] — 2026-10-18 — Silent sign-ins
+
+### Added
+- **Silent sign-ins.** Stop asking the phone again and again when nothing about a sign-in is new. TouchQue's
+  risk engine decides; the push is skipped only when it says so.
+  - `tq.risk.check(external_username, type='LOGIN', client_ip=None, user_agent=None, browser_proof=None,
+    max_age_seconds=None)` returns `{'prompt', 'reasons', 'assurance', 'silentMode'}`. Sends nothing to the
+    phone. Read fail-closed: `prompt` is `False` only when the API answered the boolean `false`; malformed
+    `reasons` become `[]`, a missing `assurance` is `'normal'` (`parse_risk_check`).
+  - `tq.risk.browsers(external_username)` and `tq.risk.forget_browsers(external_username, thumbprint=None)`: the
+    browsers TouchQue knows for a user, and forgetting one or all of them.
+  - `login.request(..., browser_proof=...)`, `login.verify(..., browser_proof=...)` and
+    `tq.start(..., browser_proof=...)`: the browser's device-bound key proof (`X-TouchQue-Browser`, made by
+    `@touchque/web` 1.4.0), passed through untouched; once the request is approved, TouchQue knows that browser.
+  - `silent_sign_in` option (default off) on the Flask and Django `require_touchque`, FastAPI's
+    `RequireTouchQue`, `RelayHandler` (POST /login; every relay adapter passes it through) and `run_guard`: a new
+    attempt carrying the `X-TouchQue-Browser` header is checked first; `prompt: false` approves it at once with
+    no push (`assurance['method'] == 'silent'`, `confirmedVia == 'SILENT'`, `requestId == 'silent'`, `reasons`;
+    `on_authenticated` gets `via: 'silent'`). Otherwise, and on any error in the check, the usual push starts
+    with the proof attached. `{'max_age_seconds': n}` sets your own limit on the age of the last phone approval.
+  - `BROWSER_HEADER` (`x-touchque-browser`), `silent_input_from_headers`.
+
 ## [3.4.0] — 2026-10-18
 
 ### Added

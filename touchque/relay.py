@@ -42,7 +42,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple, Union
 from .exceptions import (
     TouchQueAPIException, TouchQuePasskeyRequiredError, TouchQueRejectedException, TouchQueTimeoutException,
 )
-from .guard import guard_input_from_headers, is_status_poll, run_guard
+from .guard import SilentSignIn, guard_input_from_headers, is_status_poll, run_guard, silent_input_from_headers
 from .rate_limiter import FixedWindowLimiter
 
 # A 1.5 s poll for a 2-minute push is 80 requests: one attempt's worth of polls.
@@ -184,13 +184,24 @@ class RelayHandler:
     approval screen. Build it from server-side state - the request body is
     attacker-controlled.
 
+    ``silent_sign_in``: silent sign-ins for POST /login (default off). When
+    on, a new sign-in whose browser sent its device-bound key proof
+    (``X-TouchQue-Browser``, added by ``@touchque/web`` with
+    ``browserKey: true``) first asks TouchQue whether anything about it is
+    new. If nothing is, it succeeds at once with no push (``on_authenticated``
+    gets ``via: 'silent'``; the answer's ``assurance['method']`` is
+    ``'silent'``). Otherwise, and on any error, the usual push starts and its
+    approval makes the browser known. Set ``get_login_user`` too: the user
+    must have passed your password step. ``{'max_age_seconds': n}`` sets your
+    own limit on how long ago the last phone approval in that browser may be.
+
     ``on_authenticated(request, response, info)``: called right before the
     relay sends its own success response for POST /login (once approved),
     /offline/verify, /offline/totp, /passkey/authenticate/verify and
     /passkey/login/verify. ``info`` is ``{"externalUsername", "requestId"
-    (when known), "via": "login" | "passkey" | "offline" | "offline-totp"}``.
-    Open your session here: mutate ``request`` (session) or ``response``
-    (``set_cookie``); do not build a response yourself.
+    (when known), "via": "login" | "passkey" | "offline" | "offline-totp" |
+    "silent"}``. Open your session here: mutate ``request`` (session) or
+    ``response`` (``set_cookie``); do not build a response yourself.
 
     Callbacks receive the framework's native request object.
     """
@@ -205,6 +216,7 @@ class RelayHandler:
         action_type: str = 'LOGIN',
         get_details: Optional[Callable[[Any], Any]] = None,
         on_authenticated: Optional[Callable[[Any, Any, Dict[str, Any]], Any]] = None,
+        silent_sign_in: SilentSignIn = False,
     ):
         global _warned_pre_auth
         if get_user_id is None:
@@ -215,6 +227,7 @@ class RelayHandler:
         self.action_type = action_type
         self.get_details = get_details
         self.on_authenticated = on_authenticated
+        self.silent_sign_in = silent_sign_in
         if rate_limit is False:
             self.limiter = None  # type: Optional[FixedWindowLimiter]
         else:
@@ -439,7 +452,8 @@ class _Ctx:
             # Pre-auth: a typed username proves nothing, so no linking QR unless
             # get_login_user ties this route to the password step.
             enroll=bool(self.h.get_login_user),
-            **headers_in
+            **headers_in,
+            **silent_input_from_headers(self.h.silent_sign_in, self.get_header)
         )
         approved = result.get('approved')
         if not approved:
@@ -452,7 +466,7 @@ class _Ctx:
         try:
             confirmed = approved.get('confirmedVia')
             via = 'offline-totp' if confirmed == 'OFFLINE_TOTP' else 'offline' if confirmed == 'OFFLINE_CODE' \
-                else 'login'
+                else 'silent' if confirmed == 'SILENT' else 'login'
             self.authenticated({'externalUsername': external_username, 'requestId': approved.get('requestId'),
                                 'via': via})
             return _json(_compact({'status': 'success', 'requestId': approved.get('requestId'),

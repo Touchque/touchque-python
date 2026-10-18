@@ -50,15 +50,19 @@ def _err_code(err: TouchQueAPIException) -> Optional[str]:
 
 def start(client: 'TouchQue', action: str, user: str, details: Optional[LoginDetails] = None,
           reference_id: Optional[str] = None, ip: Optional[str] = None, user_agent: Optional[str] = None,
-          enroll: bool = True) -> Dict[str, Any]:
-    """Starts an approval for `action` — never waits."""
+          enroll: bool = True, browser_proof: Optional[str] = None) -> Dict[str, Any]:
+    """Starts an approval for `action` — never waits.
+
+    ``browser_proof`` (silent sign-ins): the browser's device-bound key proof
+    (``X-TouchQue-Browser``), passed through untouched. Once the user
+    approves, TouchQue knows this browser."""
     if not user:
         raise TouchQueConfigException('start() needs the user id')
     norm = normalize_details(details)
     try:
         res = client.login.request(
             user, type=action, reference_id=reference_id, client_ip=ip, user_agent=user_agent,
-            details=norm or None,
+            details=norm or None, browser_proof=browser_proof,
         )
         canary = res.get('canary')
         canary = {'url': canary['url']} if isinstance(canary, dict) and isinstance(canary.get('url'), str) else None

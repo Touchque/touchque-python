@@ -44,7 +44,7 @@ from django.urls import re_path
 from django.views.decorators.csrf import csrf_exempt as _csrf_exempt
 
 from ..client import TouchQue, get_default_client
-from ..guard import guard_input_from_headers, run_guard
+from ..guard import SilentSignIn, guard_input_from_headers, run_guard, silent_input_from_headers
 from ..relay import RelayHandler
 from ..steps import LoginDetails
 
@@ -65,12 +65,23 @@ def require_touchque(
     user: Optional[Callable[[HttpRequest], Optional[str]]] = None,
     details: Optional[Callable[[HttpRequest], Optional[LoginDetails]]] = None,
     reference_id: Optional[Callable[[HttpRequest], Optional[str]]] = None,
+    silent_sign_in: SilentSignIn = False,
 ) -> Callable:
     """
     ``user``: who is approving, given the request. Default:
     ``request.user.email`` (Django auth). For the login step, return the user
     who just passed your password check, e.g.
     ``user=lambda req: req.session.get('password_ok')``.
+
+    ``silent_sign_in`` (default off): when on, a new attempt whose browser
+    sent its device-bound key proof (``X-TouchQue-Browser``, added by
+    ``@touchque/web`` with ``browserKey: true``) first asks TouchQue whether
+    anything about it is new. If nothing is, your view runs at once with no
+    push (``request.touchque['assurance']['method'] == 'silent'``,
+    ``request.touchque['reasons']``). Otherwise, and on any error, the usual push
+    starts and its approval makes the browser known.
+    ``{'max_age_seconds': n}`` sets your own limit on how long ago the last
+    phone approval in that browser may be.
     """
     user_of = user or _default_user
     tq = client
@@ -86,6 +97,7 @@ def require_touchque(
                 reference_id=reference_id(request) if reference_id else None,
                 ip=request.META.get('REMOTE_ADDR'), user_agent=request.META.get('HTTP_USER_AGENT'),
                 **guard_input_from_headers(lambda name: request.headers.get(name)),
+                **silent_input_from_headers(silent_sign_in, lambda name: request.headers.get(name)),
             )
             if 'approved' in result:
                 request.touchque = result['approved']

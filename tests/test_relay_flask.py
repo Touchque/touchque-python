@@ -95,3 +95,19 @@ def test_passkey_login_verify_mismatch_and_error_mapping():
     tq.webauthn.list_credentials.side_effect = TouchQueAPIException('boom', status=503)
     res = client.get('/touchque/passkey/credentials', headers={'X-User': 'u@example.com'})
     assert res.status_code == 502 and res.get_json() == {'error': 'relay_error'}
+
+
+def test_login_silent_sign_in_reads_the_browser_header(fake_api):
+    from .silent_vectors import PROOF
+    fake_api.link('alice@example.com')
+    fake_api.opts(silent=True)
+    seen = []
+    app = make_app(real_tq(fake_api), rate_limit=False, silent_sign_in=True,
+                   get_login_user=lambda req: 'alice@example.com',
+                   on_authenticated=lambda req, resp, info: seen.append(info))
+    res = app.test_client().post('/touchque/login', json={}, headers={'X-TouchQue-Browser': PROOF})
+    assert res.status_code == 200
+    assert res.get_json() == {'status': 'success', 'requestId': 'silent',
+                              'assurance': {'phishingResistant': False, 'method': 'silent'}}
+    assert seen == [{'externalUsername': 'alice@example.com', 'requestId': 'silent', 'via': 'silent'}]
+    assert fake_api.last_check()['browserProof'] == PROOF

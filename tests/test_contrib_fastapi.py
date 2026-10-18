@@ -42,6 +42,27 @@ async def test_full_flow(fake_api):
         assert done.json()['done'] is True
 
 
+
+@pytest.mark.anyio
+async def test_silent_sign_in_resolves_at_once_for_a_known_browser(fake_api):
+    from .silent_vectors import PROOF
+    fake_api.link('jane@acme.com')
+    fake_api.opts(silent=True)
+    tq = TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
+    app = fastapi.FastAPI()
+
+    @app.post('/login/2fa')
+    async def login(touchque=Depends(RequireTouchQue('LOGIN', client=tq, user=lambda req: 'jane@acme.com',
+                                                      silent_sign_in={'max_age_seconds': 3600}))):
+        return {'method': touchque['assurance']['method'], 'reasons': len(touchque['reasons'])}
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+        res = await client.post('/login/2fa', headers={'x-touchque-browser': PROOF})
+    assert res.status_code == 200
+    assert res.json() == {'method': 'silent', 'reasons': 5}
+    assert fake_api.last_check()['maxAgeSeconds'] == 3600
+
+
 @pytest.fixture
 def anyio_backend():
     return 'asyncio'

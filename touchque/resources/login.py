@@ -11,7 +11,7 @@ class Login:
     def __init__(self, http: HttpClient):
         self._http = http
 
-    def request(self, external_username: str, type: str = 'LOGIN', reference_id: Optional[str] = None, client_ip: Optional[str] = None, user_agent: Optional[str] = None, require_biometric: bool = False, require_number_match: bool = False, details: Optional[LoginDetails] = None) -> Dict[str, Any]:
+    def request(self, external_username: str, type: str = 'LOGIN', reference_id: Optional[str] = None, client_ip: Optional[str] = None, user_agent: Optional[str] = None, require_biometric: bool = False, require_number_match: bool = False, details: Optional[LoginDetails] = None, browser_proof: Optional[str] = None) -> Dict[str, Any]:
         """
         Request a 2FA login/approval from the user's mobile device.
 
@@ -26,6 +26,14 @@ class Login:
         order). At most 8 entries, labels <= 40 and values <= 120
         characters; the API rejects (never truncates) anything outside those
         limits. Build it from server-side state, never from browser input.
+
+        ``browser_proof`` (silent sign-ins): the browser's device-bound key
+        proof, exactly as the browser sent it (``X-TouchQue-Browser`` header,
+        made by ``@touchque/web``). When the user approves this request on the
+        phone (or with a passkey), TouchQue remembers the browser, so a later
+        ``risk.check`` can let the same browser in without asking. Pass it
+        through untouched; an invalid proof only means "a browser TouchQue
+        does not know".
         """
         payload = {
             'externalUsername': external_username,
@@ -43,6 +51,8 @@ class Login:
             payload['requireNumberMatch'] = True
         if details:
             payload['details'] = details
+        if browser_proof:
+            payload['browserProof'] = browser_proof
 
         return self._http.post('/login/request', payload)
 
@@ -50,14 +60,14 @@ class Login:
         """Check the current status of a login request."""
         return self._http.get(f"/login/status/{quote(request_id, safe='')}")
 
-    def verify(self, external_username: str, type: str = 'LOGIN', reference_id: Optional[str] = None, client_ip: Optional[str] = None, user_agent: Optional[str] = None, require_biometric: bool = False, require_number_match: bool = False, timeout_ms: int = 30000, details: Optional[LoginDetails] = None) -> Dict[str, Any]:
+    def verify(self, external_username: str, type: str = 'LOGIN', reference_id: Optional[str] = None, client_ip: Optional[str] = None, user_agent: Optional[str] = None, require_biometric: bool = False, require_number_match: bool = False, timeout_ms: int = 30000, details: Optional[LoginDetails] = None, browser_proof: Optional[str] = None) -> Dict[str, Any]:
         """Request a login and wait (poll) until the user approves or rejects it.
 
         Raises ``TouchQuePasskeyRequiredError`` when a passkey must approve it:
         a phishing-resistant policy (``reason='policy'``, no push sent), or the
         user tapped Approve during a call (``reason='step_up'``, Vishing Shield):
         finish it in the browser with ``@touchque/web``."""
-        request_result = self.request(external_username, type, reference_id, client_ip, user_agent, require_biometric, require_number_match, details)
+        request_result = self.request(external_username, type, reference_id, client_ip, user_agent, require_biometric, require_number_match, details, browser_proof)
         request_id = request_result['requestId']
         if request_result.get('requiresPasskey'):
             raise TouchQuePasskeyRequiredError(request_id)

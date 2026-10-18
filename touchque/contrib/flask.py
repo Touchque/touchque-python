@@ -35,7 +35,7 @@ from typing import Any, Callable, Optional
 from flask import Blueprint, abort, current_app, g, json, jsonify, request
 
 from ..client import TouchQue, get_default_client
-from ..guard import guard_input_from_headers, run_guard
+from ..guard import SilentSignIn, guard_input_from_headers, run_guard, silent_input_from_headers
 from ..relay import RELAY_ROUTES, RelayHandler
 from ..steps import LoginDetails
 
@@ -55,12 +55,23 @@ def require_touchque(
     user: Optional[Callable[[], Optional[str]]] = None,
     details: Optional[Callable[[], Optional[LoginDetails]]] = None,
     reference_id: Optional[Callable[[], Optional[str]]] = None,
+    silent_sign_in: SilentSignIn = False,
 ) -> Callable:
     """
     ``user``: who is approving. Default: ``flask.g.user`` (string, or an
     object with ``.email``/``.id``/``.username``). For the login step, return
     the user who just passed your password check, e.g.
     ``user=lambda: session.get('password_ok')``.
+
+    ``silent_sign_in`` (default off): when on, a new attempt whose browser
+    sent its device-bound key proof (``X-TouchQue-Browser``, added by
+    ``@touchque/web`` with ``browserKey: true``) first asks TouchQue whether
+    anything about it is new. If nothing is, your view runs at once with no
+    push (``g.touchque['assurance']['method'] == 'silent'``,
+    ``g.touchque['reasons']``). Otherwise, and on any error, the usual push
+    starts and its approval makes the browser known.
+    ``{'max_age_seconds': n}`` sets your own limit on how long ago the last
+    phone approval in that browser may be.
     """
     user_of = user or _default_user
     tq = client
@@ -76,6 +87,7 @@ def require_touchque(
                 reference_id=reference_id() if reference_id else None,
                 ip=request.remote_addr, user_agent=request.headers.get('User-Agent'),
                 **guard_input_from_headers(lambda name: request.headers.get(name)),
+                **silent_input_from_headers(silent_sign_in, lambda name: request.headers.get(name)),
             )
             if 'approved' in result:
                 g.touchque = result['approved']

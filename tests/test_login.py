@@ -111,3 +111,14 @@ def test_webhook_reason_and_event_constants():
     assert WebhookReasons.USER_REPORTED_COACHED == 'user_reported_coached'
     assert WebhookEvents.APPROVAL_REVOKED == 'APPROVAL_REVOKED'
     assert WebhookEvents.APPROVAL_RECONFIRMED == 'APPROVAL_RECONFIRMED'
+
+
+def test_request_and_verify_forward_the_browser_proof():
+    http = MagicMock()
+    http.post.return_value = {"requestId": "req_1", "message": "ok", "expiresAt": "t"}
+    Login(http).request("a@b.com", browser_proof="eyJ2IjoxfQ")
+    http.post.assert_called_with(
+        "/login/request", {"externalUsername": "a@b.com", "type": "LOGIN", "browserProof": "eyJ2IjoxfQ"})
+    http.get.return_value = {"status": "CONFIRMED"}
+    Login(http).verify("a@b.com", browser_proof="eyJ2IjoxfQ")
+    assert http.post.call_args[0][1]["browserProof"] == "eyJ2IjoxfQ"
