@@ -110,6 +110,7 @@ def run_guard(
     enroll: bool = True,
     browser_proof: Optional[str] = None,
     silent_sign_in: SilentSignIn = False,
+    context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Runs one step of the guard. Returns either
     ``{"approved": {...}, "status": 200}`` (run your protected action) or
@@ -127,6 +128,8 @@ def run_guard(
     ``requestId == 'silent'``, ``reasons``). Otherwise, and on any error in
     the check, the usual push starts. ``{'max_age_seconds': n}`` sets your own
     limit on how long ago the last phone approval in that browser may be.
+
+    ``context``: for your TouchQue Actions only (``event.context``).
     """
     if not user:
         return {'status': 401, 'body': {
@@ -142,6 +145,8 @@ def run_guard(
             step['details'] = norm
         claims = {**base, 'st': step['state'], 'rid': step.get('requestId'), 'n': step.get('number'),
                   'oc': (step.get('offline') or {}).get('challengeId'), 'exp': int(time.time() * 1000) + TOKEN_TTL_MS}
+        if step.get('caseCode'):
+            claims['cc'] = step['caseCode']  # "Why?": still shown while it waits
         if extra:
             claims.update(extra)
         signed = sign_guard_token(client._api_secret, claims)
@@ -230,18 +235,21 @@ def run_guard(
                 return issue({'state': 'offline', 'offline': {'challengeId': str(bound.get('oc'))}},
                              {'oc': bound.get('oc'), 'rid': bound['rid'], 'n': bound.get('n')})
             if now['state'] in ('waiting', 'passkey_required'):
-                return issue({'state': now['state'], 'requestId': bound['rid'], 'number': bound.get('n')}, {'n': bound.get('n')})
+                waiting = {'state': now['state'], 'requestId': bound['rid'], 'number': bound.get('n')}
+                if bound.get('cc'):
+                    waiting['caseCode'] = bound['cc']
+                return issue(waiting, {'n': bound.get('n')})
             return issue({'state': now['state'], 'requestId': bound['rid']})
 
         # Anything else (no/foreign token, enrollment finished, new attempt): start.
         proof = browser_proof if isinstance(browser_proof, str) and browser_proof \
             and len(browser_proof) <= MAX_BROWSER_PROOF else None
         if proof and _silent_on(silent_sign_in):
-            silent = _silent_approval(client, user, action, proof, ip, user_agent, silent_sign_in)
+            silent = _silent_approval(client, user, action, proof, ip, user_agent, silent_sign_in, context)
             if silent:
                 return {'status': 200, 'approved': silent}
         return issue(start(client, action, user, details=norm or None, reference_id=reference_id, ip=ip,
-                           user_agent=user_agent, enroll=enroll, browser_proof=proof))
+                           user_agent=user_agent, enroll=enroll, browser_proof=proof, context=context))
     except TouchQueConfigException as err:
         logger.error('[TouchQue] %s', err)
         return {'status': 500, 'body': {
@@ -257,7 +265,8 @@ def run_guard(
 
 
 def _silent_approval(client: 'TouchQue', user: str, action: str, browser_proof: str, ip: Optional[str],
-                     user_agent: Optional[str], silent_sign_in: SilentSignIn) -> Optional[Dict[str, Any]]:
+                     user_agent: Optional[str], silent_sign_in: SilentSignIn,
+                     context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """Asks TouchQue whether this known browser may sign in without the phone.
     Fails closed: only an answer of exactly ``prompt: False`` approves; any
     error (network, 4xx, 5xx, a server without silent sign-ins) means "ask as
@@ -265,7 +274,7 @@ def _silent_approval(client: 'TouchQue', user: str, action: str, browser_proof: 
     try:
         max_age = silent_sign_in.get('max_age_seconds') if isinstance(silent_sign_in, dict) else None
         res = client.risk.check(user, type=action, client_ip=ip, user_agent=user_agent,
-                                browser_proof=browser_proof, max_age_seconds=max_age)
+                                browser_proof=browser_proof, max_age_seconds=max_age, context=context)
         if not isinstance(res, dict) or res.get('prompt') is not False:
             return None
         reasons = res.get('reasons')

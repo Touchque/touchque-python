@@ -63,14 +63,19 @@ class WebAuthn:
         return self._http.post('/webauthn/login/verify', {'requestId': request_id, 'response': response})
 
     # ── passwordless-primary login (no password, no prior login.request) ────
-    def primary_options(self, external_username: str) -> Dict[str, Any]:
+    def primary_options(self, external_username: Optional[str] = None) -> Dict[str, Any]:
         """Step 1 of a passwordless-primary login. Requires
         ``TenantPolicy.passwordlessLoginEnabled``. A 404 ``no_passkey_registered``
         means the user has no passkey — fall back to password login.
 
+        Without ``external_username`` the options accept any passkey of your
+        site (passkey autofill, where nobody has typed an email yet), and
+        ``primary_verify`` names the user the passkey belongs to.
+
         Returns ``{ attemptId, options }``.
         """
-        return self._http.post('/webauthn/authenticate/primary/options', {'externalUsername': external_username})
+        body = {'externalUsername': external_username} if external_username else {}
+        return self._http.post('/webauthn/authenticate/primary/options', body)
 
     def primary_verify(self, attempt_id: str, response: Dict[str, Any]) -> Dict[str, Any]:
         """Step 2 of a passwordless-primary login.

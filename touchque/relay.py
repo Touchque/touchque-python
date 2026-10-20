@@ -13,7 +13,7 @@ Routes (relative to wherever you mount the relay):
   POST   /offline/challenge               (pre-auth, body.externalUsername) -> QR for a phone with no internet
   POST   /offline/verify                  (pre-auth, body.challengeId/code)
   POST   /offline/totp                    (pre-auth, body.externalUsername/code) -> time-based code fallback
-  POST   /passkey/authenticate/options    (pre-auth, body.email)
+  POST   /passkey/authenticate/options    (pre-auth, body.email; none = any passkey, for autofill)
   POST   /passkey/authenticate/verify     (pre-auth, body.attemptId/response)
   POST   /passkey/login/options           (pre-auth, body.requestId - approve a pending 2FA request)
   POST   /passkey/login/verify            (pre-auth, body.requestId/response)
@@ -538,7 +538,7 @@ class _Ctx:
         email = str(_field(self.body, 'email') or '').lower()
         self.allow('passkey-options', email or None)
         try:
-            return _json(self.h.client.webauthn.primary_options(email))
+            return _json(self.h.client.webauthn.primary_options(email or None))
         except Exception as error:  # noqa: BLE001
             return _relay_error(error)
 

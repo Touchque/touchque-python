@@ -52,10 +52,10 @@ def test_unknown_action_is_a_clear_config_error(fake_api):
         tq.start('NOT_DEFINED', 'jane@acme.com')
 
 
-def test_actions_define_creates_and_updates(fake_api):
+def test_action_types_define_creates_and_updates(fake_api):
     api = fake_api
     tq = client_for(api)
-    tq.actions.define('EXPORT', name='Export data', critical=True)
+    tq.action_types.define('EXPORT', name='Export data', critical=True)
     calls = api.calls()
     body = next(c['body'] for c in calls if c['path'] == '/action-types')
     assert body == {'type': 'EXPORT', 'name': 'Export data', 'critical': True}
@@ -175,7 +175,7 @@ def test_guard_frozen_rate_limited_blocked(fake_api):
     api.opts(rateLimited=False, blocked='geo_policy')
     blocked = run_guard(tq, 'jane@acme.com', 'LOGIN')
     assert blocked['status'] == 403
-    assert blocked['body']['touchque'] == {'state': 'blocked', 'reason': 'geo_policy'}
+    assert blocked['body']['touchque'] == {'state': 'blocked', 'reason': 'geo_policy', 'caseCode': 'REF-USE'}
 
 
 def test_waiting_step_carries_the_telemetry_token(fake_api):
@@ -225,7 +225,7 @@ def test_provisional_approval_and_the_critical_action_lock(fake_api):
     approval = tq.complete(step['requestId'], 'jane@acme.com', 'LOGIN')
     assert approval['provisional'] is True
     assert approval['revoked'] is False
-    assert tq.start('SEND_MONEY', 'jane@acme.com') == {'state': 'blocked', 'reason': 'provisional'}
+    assert tq.start('SEND_MONEY', 'jane@acme.com') == {'state': 'blocked', 'reason': 'provisional', 'caseCode': 'REF-USE'}
     fake_api.reconfirm(step['requestId'])
     assert tq.start('SEND_MONEY', 'jane@acme.com')['state'] == 'waiting'
 

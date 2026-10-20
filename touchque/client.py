@@ -2,11 +2,13 @@ from typing import Any, Dict, Optional
 
 from .config import Config
 from .http_client import HttpClient
+from .resources.action_types import ActionTypes
 from .resources.actions import Actions
 from .resources.auth import Auth
 from .resources.login import Login
 from .resources.offline import Offline
 from .resources.risk import Risk
+from .resources.recovery import Recovery
 from .resources.webauthn import WebAuthn
 from .resources.webhook import Webhook
 from .steps import LoginDetails, check as _check, complete as _complete, start as _start
@@ -35,9 +37,14 @@ class TouchQue:
         self.webauthn = WebAuthn(http)
         self.webhook = Webhook(self.config)
         self.offline = Offline(http)
+        #: Action types: what users approve (LOGIN, SEND_MONEY…). Was ``actions`` before 4.0.
+        self.action_types = ActionTypes(http)
+        #: TouchQue Actions: your own code in the approval pipeline.
         self.actions = Actions(http)
         #: Silent sign-ins: should this sign-in ask the phone, and which browsers TouchQue knows.
         self.risk = Risk(http)
+        #: Never Locked Out: move a user whose phone is gone to a new phone, with colleagues vouching.
+        self.recovery = Recovery(http)
 
     # ── headless step-up (see touchque.steps / touchque.guard) ─────────────
 

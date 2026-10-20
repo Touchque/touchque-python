@@ -10,8 +10,7 @@ from urllib.parse import urlencode
 from .config import Config
 from .exceptions import TouchQueAPIException, TouchQueNetworkException
 
-SDK_VERSION = '3.5.0'
-
+SDK_VERSION = '4.0.0'
 
 def _build_query(params: Optional[Dict[str, Any]]) -> str:
     """Deterministic query string: keys sorted, `?`-prefixed (or '')."""
@@ -35,6 +34,24 @@ class HttpClient:
             response = requests.post(
                 f"{self.config.base_url}{endpoint}", data=body_str, headers=headers,
                 timeout=timeout_sec, allow_redirects=False,
+            )
+        except requests.exceptions.RequestException as e:
+            raise TouchQueNetworkException(f"Network Error: {e}") from e
+        return self._handle_response(response)
+
+    def put(self, endpoint: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        return self._send('PUT', endpoint, body)
+
+    def patch(self, endpoint: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        return self._send('PATCH', endpoint, body)
+
+    def _send(self, method: str, endpoint: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        body_str = json.dumps(body, separators=(',', ':'))
+        headers = self._auth_headers(method, endpoint, body_str)
+        try:
+            response = requests.request(
+                method, f"{self.config.base_url}{endpoint}", data=body_str, headers=headers,
+                timeout=self.config.timeout / 1000.0, allow_redirects=False,
             )
         except requests.exceptions.RequestException as e:
             raise TouchQueNetworkException(f"Network Error: {e}") from e
@@ -106,6 +123,7 @@ class HttpClient:
                 attempts_left=response_data.get('attemptsLeft'),
                 retry_after=retry_after,
                 data=response_data,
+                case_code=response_data.get('caseCode') if isinstance(response_data.get('caseCode'), str) else None,
             )
 
         return response_data

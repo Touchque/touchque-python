@@ -58,6 +58,14 @@ class FakeApi:
     def reject(self, id: Optional[str] = None):
         self._call('/__test/reject', {'id': id})
 
+    def recovery(self, to: str, id: Optional[str] = None):
+        """Never Locked Out: move a recovery to VOUCHING, COOLING or COMPLETED."""
+        self._call('/__test/recovery', {'id': id, 'to': to})
+
+    def approve_version(self, slug: str, number: int):
+        """TouchQue Actions: the dashboard's phone approval of a pending version."""
+        self._call('/__test/approve-version', {'slug': slug, 'number': number})
+
     def calls(self):
         import urllib.request
         with urllib.request.urlopen(self.base_url + '/__test/calls') as resp:

@@ -16,6 +16,7 @@ from .steps import normalize_details, details_digest
 from .approval_proof import verify_approval_proof
 from .guard import run_guard, guard_input_from_headers, silent_input_from_headers, BROWSER_HEADER
 from .resources.risk import parse_risk_check
+from .resources.recovery import is_recovery_open
 from .relay import RelayHandler, RelayResponse, RELAY_ROUTES
 from .rate_limiter import FixedWindowLimiter
 
@@ -44,6 +45,7 @@ __all__ = [
     'silent_input_from_headers',
     'BROWSER_HEADER',
     'parse_risk_check',
+    'is_recovery_open',
     'RelayHandler',
     'RelayResponse',
     'RELAY_ROUTES',

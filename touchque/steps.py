@@ -48,9 +48,24 @@ def _err_code(err: TouchQueAPIException) -> Optional[str]:
     return err.code or (err.data or {}).get('error')
 
 
+def _why(res: Dict[str, Any]) -> Dict[str, Any]:
+    """"Why?": the case code (``K7P-2QX``) and plain reasons of a login request's
+    answer, for its step. Both are safe for the browser: show the code with the
+    step ("Tell your support team: K7P-2QX")."""
+    out: Dict[str, Any] = {}
+    if isinstance(res.get('caseCode'), str) and res['caseCode']:
+        out['caseCode'] = res['caseCode']
+    reasons = [{'code': r['code'], 'text': r.get('text') if isinstance(r.get('text'), str) else ''}
+               for r in (res.get('reasons') or []) if isinstance(r, dict) and isinstance(r.get('code'), str)]
+    if reasons:
+        out['reasons'] = reasons
+    return out
+
+
 def start(client: 'TouchQue', action: str, user: str, details: Optional[LoginDetails] = None,
           reference_id: Optional[str] = None, ip: Optional[str] = None, user_agent: Optional[str] = None,
-          enroll: bool = True, browser_proof: Optional[str] = None) -> Dict[str, Any]:
+          enroll: bool = True, browser_proof: Optional[str] = None,
+          context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Starts an approval for `action` — never waits.
 
     ``browser_proof`` (silent sign-ins): the browser's device-bound key proof
@@ -62,19 +77,19 @@ def start(client: 'TouchQue', action: str, user: str, details: Optional[LoginDet
     try:
         res = client.login.request(
             user, type=action, reference_id=reference_id, client_ip=ip, user_agent=user_agent,
-            details=norm or None, browser_proof=browser_proof,
+            details=norm or None, browser_proof=browser_proof, context=context,
         )
         canary = res.get('canary')
         canary = {'url': canary['url']} if isinstance(canary, dict) and isinstance(canary.get('url'), str) else None
         if res.get('requiresPasskey'):
             step = {'state': 'passkey_required', 'requestId': res.get('requestId'),
-                    'expiresAt': res.get('expiresAt'), 'details': norm or None}
+                    'expiresAt': res.get('expiresAt'), 'details': norm or None, **_why(res)}
             if canary:
                 step['canary'] = canary
             return step
         step = {
             'state': 'waiting', 'requestId': res.get('requestId'), 'number': res.get('challengeCode'),
-            'expiresAt': res.get('expiresAt'), 'details': norm or None,
+            'expiresAt': res.get('expiresAt'), 'details': norm or None, **_why(res),
         }
         if res.get('telemetryToken'):
             # Only when the workspace collects behavioural signals: lets the browser post
@@ -87,14 +102,15 @@ def start(client: 'TouchQue', action: str, user: str, details: Optional[LoginDet
         return step
     except TouchQueAPIException as err:
         code = _err_code(err)
+        why = {'caseCode': err.case_code} if err.case_code else {}
         if err.status == 404 and (code == 'device_not_linked' or 'linked device' in str(err).lower()):
             if not enroll:
                 return {'state': 'enroll'}
             return _enroll_step(client, user)
         if err.status == 423:
-            return {'state': 'frozen', 'retryAfter': err.retry_after}
+            return {'state': 'frozen', 'retryAfter': err.retry_after, **why}
         if err.status == 429:
-            return {'state': 'rate_limited', 'retryAfter': err.retry_after}
+            return {'state': 'rate_limited', 'retryAfter': err.retry_after, **why}
         if err.status == 400 and (code == 'unknown_action' or 'invalid action type' in str(err).lower()):
             raise TouchQueConfigException(
                 f'Unknown action "{action}". Create it once with client.actions.define("{action}") '
@@ -105,7 +121,7 @@ def start(client: 'TouchQue', action: str, user: str, details: Optional[LoginDet
                 or ('passkey_not_registered' if code in ('passkey_not_registered',) or (err.data or {}).get('error') == 'phishing_resistant_required' else None) \
                 or ('action_disabled' if code == 'action_disabled' else None) \
                 or code or 'blocked'
-            return {'state': 'blocked', 'reason': reason}
+            return {'state': 'blocked', 'reason': reason, **why}
         raise
 
 

@@ -80,6 +80,9 @@ mount the relay: `POST /login` (two-phase, same `202` + token contract as
 above), `/enroll/start`, `/enroll/status`, `/offline/challenge|verify|totp`,
 `/passkey/authenticate/*`, `/passkey/login/*`, `/passkey/register/*`,
 `GET /passkey/credentials` and `DELETE /passkey/credentials/<id>`.
+`POST /passkey/authenticate/options` with no `email` answers options for any
+passkey of your site, for `@touchque/web`'s passkey autofill
+(`webauthn.primary_options()` with no username does the same).
 
 ```python
 # Flask
@@ -212,6 +215,26 @@ sign-in and sends a beacon to it, so a real-time phishing proxy in front of your
 approval is refused (`reason: phishing_origin`) and the phone warns the user. Allow the canary host in your
 Content-Security-Policy (`img-src` and `connect-src`).
 
+## TouchQue Actions (your code in the approval pipeline)
+
+Alerts, step-ups and refusals by country, local time, role or amount, passkeys
+for admins — from a template or a few lines of JavaScript, replayed against your
+real recent sign-ins before they go live. Full guide: [ACTIONS.md](../ACTIONS.md).
+
+```python
+tq.actions.deploy('night-alert', trigger='approval.decided',
+                  template={'id': 'alert', 'params': {'channel': 'slack', 'when': {'countries': ['TR'], 'hours': {'from': 0, 'to': 6}}}})
+
+draft = 'exports.onExecute = async (event, api) => { if (event.context?.amount > 10000) api.stepUp("Over 10,000"); };'
+report = tq.actions.dry_run(trigger='login.request', code=draft)   # report['transitions'] → {'push→number_match': 3}
+tq.actions.deploy('big-transfers', trigger='login.request', code=draft)
+```
+
+Give Actions what only your server knows with `context=` (never shown on the
+phone): `@require_touchque('SEND_MONEY', context=lambda: {'amount': request.json['amount']})`.
+Loosening calls need a capability an admin approves on their phone. Action types
+moved to `tq.action_types` in 4.0.
+
 ## Silent sign-ins (stop asking when nothing is new)
 
 A user who approved on their phone in this browser a little while ago, from the same phone, network and country,
@@ -270,6 +293,69 @@ tq.risk.forget_browsers(user)                  # all; or thumbprint=... for one
 Forget a user's browsers after a password reset or a "sign out everywhere". `risk.check` reads the answer
 fail-closed (`parse_risk_check`): `prompt` is `False` only when TouchQue answered the boolean `false`; malformed
 `reasons` become `[]` and a missing `assurance` is `'normal'`.
+
+## Never Locked Out (lost, dead or new phone)
+
+A user whose phone is gone moves to a new phone without a help desk. Colleagues they named beforehand vouch on their own
+phones, each typing a number the user reads them on a call; then a cooling-off (default 60 minutes) lets the old phone, any
+voucher or an admin stop it. The risk engine can refuse it or ask for more vouchers, and for 24 hours afterwards critical
+actions are refused. It is an option: offer it next to passkeys and the old phone's transfer, never as the only way. Every
+step is a hash-chained receipt (`receipts`); a voucher's step carries the signature of their phone's hardware key.
+
+```python
+# Settings page, after an approval on the user's phone:
+tq.recovery.set_vouchers(user, ['bo@acme.com', 'cy@acme.com'])
+
+# "I lost my phone", after the password:
+r = tq.recovery.start(user, client_ip=ip, display_name='Ada', fallback_vouchers=admins)
+show_qr(r['bindUri'])                      # the TouchQue app on the new phone scans it
+now = tq.recovery.status(r['recoveryId'])  # each voucher's 'code' to read to them
+# now['status']: AWAITING_DEVICE -> VOUCHING -> COOLING -> COMPLETED (or VETOED / EXPIRED / FAILED)
+
+tq.recovery.veto(r['recoveryId'], by='admin@acme.com')  # an admin who does not believe it
+```
+
+## "Why?": case codes instead of guesswork
+
+Every approval decision names a short case code (`K7P-2QX`: 6 characters, no I, O, 0 or 1). A user who was asked to
+match a number, needed a passkey or was refused reads it out to your support team, and the team opens the whole
+decision by it in the TouchQue dashboard (Logs → Look up a case): what went in, each check's verdict (the access rule
+that matched, the risk signals that were acted on and the ones only measured), and the single change that would have
+let it through. No screenshots, no log digging. The code opens nothing on its own: only your workspace sees its
+decisions.
+
+```python
+step = client.start('WITHDRAW', user, ip=request.remote_addr)
+# step['caseCode'] -> 'K7P-2QX'; step['reasons'] -> [{'code': 'critical_action', 'text': 'The action is marked critical'}]
+try:
+    client.login.request(user, type='LOGIN')
+except TouchQueAPIException as err:
+    if err.case_code:
+        show(f'Tell your support team: {err.case_code}')
+```
+
+`caseCode` is in the `login.request` and `risk.check` answers and every step (the guard keeps it while it waits);
+`TouchQueAPIException.case_code` carries it on refusals.
+
+## Blocking `verify()` and number matching
+
+`tq.login.verify()` sends the request and waits for the phone in one call. With number matching (your option, a
+workspace policy, a critical action or the risk engine can turn it on) the phone asks the user to pick a number,
+and the call returns only after they have. Pass `on_challenge`: it runs once, right after the request is created
+and before the wait. **Show `challengeCode` to the user now; the phone asks for it.**
+
+```python
+def show(challenge):
+    if challenge.get('challengeCode'):
+        notify_user(f"Pick {challenge['challengeCode']} on your phone", case=challenge.get('caseCode'))
+
+tq.login.verify(user, 'SEND_MONEY', on_challenge=show)
+```
+
+It gets a dict with `requestId`, `expiresAt` and, when present, `challengeCode`, `reasons` and `caseCode`. It is
+not called when only a passkey can approve (`verify()` raises `TouchQuePasskeyRequiredError` first). An exception it
+raises is logged (`touchque` logger, warning) and ignored: `verify()` keeps waiting. In a web request, where the
+page hears nothing until you answer, use the relay or `tq.start()`: their first answer already carries the number.
 
 ## Verifying the device proof (no need to trust TouchQue)
 

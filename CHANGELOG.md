@@ -3,6 +3,74 @@
 All notable changes to this project will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.0.0] — 2026-10-20 — TouchQue Actions
+
+> 3.6.0 (Never Locked Out) and 3.7.0 ("Why?" case codes) below were not published on their own; they ship in 4.0.0.
+
+### Breaking
+- **Action types moved to `tq.action_types`** (`define`, `list`; class `ActionTypes` in
+  `touchque.resources.action_types`). `tq.actions` is now TouchQue Actions. Replace `tq.actions.define(...)`
+  with `tq.action_types.define(...)`.
+
+### Added
+- **TouchQue Actions** (`tq.actions`): your own code at points of the approval pipeline, run by TouchQue in a
+  sandbox. See [ACTIONS.md](../ACTIONS.md).
+  - `deploy(slug, trigger=, code= | template=, name=, secrets=, allowed_hosts=, capabilities=, on_failure=,
+    order=, enabled=, activate=)` (idempotent; a version asking for a loosening capability answers
+    `deployed: False` with `approval['required']` and waits for an admin's phone approval), `list`, `get`,
+    `version`, `update`, `delete`, `rollback(slug, version=None)`.
+  - Developer loop: `test(..., event_id= | event=)` (one run, nothing sent), `dry_run(..., replaces=, limit=,
+    since=)` (replay against recent real decisions), `events`, `logs`, `metrics`.
+  - `triggers()`, `templates()`, `render_template(id, trigger, params)`; `secrets.set | list | delete`.
+- `context=` on `login.request`, `risk.check`, `start`, `run_guard` and the Flask, Django and FastAPI guards:
+  for your Actions only (`event.context`), never shown on the phone.
+- **`on_challenge=` on `login.verify()`**: with number matching the phone asks for a number that `verify()` used to
+  return only after the approval. `on_challenge` runs once, right after the request is created and before the
+  wait, with a dict of `requestId`, `expiresAt` and, when present, `challengeCode`, `reasons`, `caseCode`. Show
+  `challengeCode` to the user now; the phone asks for it. Not called when only a passkey can approve. An exception
+  it raises is logged (`touchque` logger) and ignored: `verify()` keeps waiting. `verify()` also takes `context=`.
+- `HttpClient.put` / `patch`.
+- **Passkey autofill** (WebAuthn conditional mediation): `webauthn.primary_options()` without
+  `external_username` asks for options that accept any passkey of your site, and `primary_verify` names the
+  user the passkey belongs to. The relay's `POST /passkey/authenticate/options` does the same when the body
+  has no `email`, so `@touchque/web`'s `passkeys.autofill()` works with no extra route.
+
+## [3.7.0] — 2026-10-19 — "Why?" case codes
+
+### Added
+- **Case codes.** Every approval decision (`login.request`, `risk.check`) now names a short case code
+  (`K7P-2QX`). Show it to your user ("Tell your support team: K7P-2QX"); your team opens the decision by it in
+  the dashboard (Logs → Look up a case).
+  - The `login.request` answer has `caseCode` and, for a step-up, `reasons` (plain English, never a score).
+  - `risk.check` returns `caseCode`.
+  - `TouchQueAPIException.case_code` on refusals (blocked, frozen, rate limited, provisional, keys lost).
+  - Steps (`start`, the guard, the relay and the Flask / Django / FastAPI integrations) carry `caseCode` and
+    `reasons`; the guard keeps showing the code while it waits.
+
+## [3.6.0] — 2026-10-19 — Never Locked Out
+
+### Added
+- **Never Locked Out.** A user whose phone is lost, dead or replaced moves to a new phone without a help desk:
+  colleagues they named vouch on their own phones, then a cooling-off anyone can veto.
+  - `tq.recovery.set_vouchers(external_username, vouchers)` and `tq.recovery.vouchers(external_username)` (who can
+    vouch today and why not). Ask for the user's phone before you change the list.
+  - `tq.recovery.start(external_username, client_ip=None, user_agent=None, display_name=None,
+    fallback_vouchers=None, required=None, cool_off_minutes=None, details=None)` returns the recovery with
+    `bindUri` (show it as a QR for the new phone); `tq.recovery.status(id)`, `tq.recovery.list(external_username=None,
+    open=False)`, `tq.recovery.veto(id, by=None, reason=None)`, `is_recovery_open`.
+  Only after your first factor (password, IdP). The risk engine's BLOCK refuses; hard signals add a voucher and
+  double the cooling-off. Errors carry `code`: `not_enough_vouchers` (with `required`, `eligible`, `vouchers`),
+  `recovery_in_progress`, `blocked`, `frozen`, `rate_limited`, `device_not_linked`. After a vouch move, critical
+  actions answer 403 `blocked` / `recovery_probation` for 24 h. New webhook events `RECOVERY_STARTED`,
+  `RECOVERY_DEVICE_BOUND`, `RECOVERY_COOLING`, `RECOVERY_COMPLETED`, `RECOVERY_VETOED`, `RECOVERY_EXPIRED`,
+  `RECOVERY_FAILED`; `DEVICE_LINKED` can carry `via: 'recovery'`.
+- `details` / `noticeDetails` on start: what the vouchers' phones and the old phone show, in your words (default
+  English lines otherwise).
+- Approval requests on the phone carry `expiresAt` (a vouch stays open for 10 minutes).
+
+### Changed
+- Phone-to-phone transfers must be signed by a phone with a hardware key (the apps do since this release) and move
+  only the accounts the phone chose.
 ## [3.5.0] — 2026-10-18 — Silent sign-ins
 
 ### Added

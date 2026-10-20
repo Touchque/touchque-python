@@ -30,7 +30,7 @@ as one Blueprint - see ``touchque.relay.RelayHandler`` for every option:
     ), url_prefix='/touchque')
 """
 import functools
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Dict, Optional
 
 from flask import Blueprint, abort, current_app, g, json, jsonify, request
 
@@ -56,6 +56,7 @@ def require_touchque(
     details: Optional[Callable[[], Optional[LoginDetails]]] = None,
     reference_id: Optional[Callable[[], Optional[str]]] = None,
     silent_sign_in: SilentSignIn = False,
+    context: Optional[Callable[[], Optional[Dict[str, Any]]]] = None,
 ) -> Callable:
     """
     ``user``: who is approving. Default: ``flask.g.user`` (string, or an
@@ -72,6 +73,9 @@ def require_touchque(
     starts and its approval makes the browser known.
     ``{'max_age_seconds': n}`` sets your own limit on how long ago the last
     phone approval in that browser may be.
+
+    ``context``: for your TouchQue Actions only (``event.context``), e.g.
+    ``context=lambda: {'roles': g.user.roles}``. Never shown on the phone.
     """
     user_of = user or _default_user
     tq = client
@@ -85,6 +89,7 @@ def require_touchque(
                 c, uid, action,
                 details=details() if details else None,
                 reference_id=reference_id() if reference_id else None,
+                context=context() if context else None,
                 ip=request.remote_addr, user_agent=request.headers.get('User-Agent'),
                 **guard_input_from_headers(lambda name: request.headers.get(name)),
                 **silent_input_from_headers(silent_sign_in, lambda name: request.headers.get(name)),

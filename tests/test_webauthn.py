@@ -56,6 +56,13 @@ def test_primary_options_and_verify():
     assert r["requiresStepUp"] is True
 
 
+def test_primary_options_without_username_is_for_any_passkey():
+    http, wa = make()
+    http.post.return_value = {"attemptId": "att_2", "options": {"allowCredentials": []}}
+    wa.primary_options()
+    http.post.assert_called_once_with("/webauthn/authenticate/primary/options", {})
+
+
 def test_list_credentials_passes_query_param():
     http, wa = make()
     http.get.return_value = {"credentials": [{"id": "c1"}]}

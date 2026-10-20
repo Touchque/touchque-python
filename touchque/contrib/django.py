@@ -36,7 +36,7 @@ or pass ``csrf_exempt=True`` if you protect them another way.
 """
 import functools
 import json
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
@@ -66,6 +66,7 @@ def require_touchque(
     details: Optional[Callable[[HttpRequest], Optional[LoginDetails]]] = None,
     reference_id: Optional[Callable[[HttpRequest], Optional[str]]] = None,
     silent_sign_in: SilentSignIn = False,
+    context: Optional[Callable[[HttpRequest], Optional[Dict[str, Any]]]] = None,
 ) -> Callable:
     """
     ``user``: who is approving, given the request. Default:
@@ -82,6 +83,9 @@ def require_touchque(
     starts and its approval makes the browser known.
     ``{'max_age_seconds': n}`` sets your own limit on how long ago the last
     phone approval in that browser may be.
+
+    ``context``: for your TouchQue Actions only (``event.context``), e.g. the
+    user's roles. Never shown on the phone.
     """
     user_of = user or _default_user
     tq = client
@@ -95,6 +99,7 @@ def require_touchque(
                 c, uid, action,
                 details=details(request) if details else None,
                 reference_id=reference_id(request) if reference_id else None,
+                context=context(request) if context else None,
                 ip=request.META.get('REMOTE_ADDR'), user_agent=request.META.get('HTTP_USER_AGENT'),
                 **guard_input_from_headers(lambda name: request.headers.get(name)),
                 **silent_input_from_headers(silent_sign_in, lambda name: request.headers.get(name)),

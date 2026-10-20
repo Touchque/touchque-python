@@ -2,8 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="touchque-authenticator",
-    version="3.5.0",
-    description="Official Python SDK for TouchQue Authenticator (2FA/MFA, passkeys, adaptive auth)",
+    version="4.0.0",    description="Official Python SDK for TouchQue Authenticator (2FA/MFA, passkeys, adaptive auth)",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     author="TouchQue",

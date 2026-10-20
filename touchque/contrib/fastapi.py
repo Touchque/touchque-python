@@ -74,6 +74,7 @@ def RequireTouchQue(  # noqa: N802 — reads as a dependency factory, PascalCase
     details: Optional[Callable[[Request], Optional[LoginDetails]]] = None,
     reference_id: Optional[Callable[[Request], Any]] = None,
     silent_sign_in: SilentSignIn = False,
+    context: Optional[Callable[[Request], Any]] = None,
 ) -> Callable[[Request], Any]:
     """
     ``user``: async or sync callable resolving who is approving from the
@@ -89,6 +90,9 @@ def RequireTouchQue(  # noqa: N802 — reads as a dependency factory, PascalCase
     starts and its approval makes the browser known.
     ``{'max_age_seconds': n}`` sets your own limit on how long ago the last
     phone approval in that browser may be.
+
+    ``context``: for your TouchQue Actions only (``event.context``), e.g. the
+    user's roles. Never shown on the phone.
     """
     user_of = user or _default_user
     tq = client
@@ -104,9 +108,12 @@ def RequireTouchQue(  # noqa: N802 — reads as a dependency factory, PascalCase
         ref = reference_id(request) if reference_id else None
         if hasattr(ref, '__await__'):
             ref = await ref
+        ctx = context(request) if context else None
+        if hasattr(ctx, '__await__'):
+            ctx = await ctx
 
         result = await anyio.to_thread.run_sync(lambda: run_guard(
-            c, uid, action, details=det, reference_id=ref,
+            c, uid, action, details=det, reference_id=ref, context=ctx,
             ip=request.client.host if request.client else None,
             user_agent=request.headers.get('user-agent'),
             **guard_input_from_headers(lambda name: request.headers.get(name)),

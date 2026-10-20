@@ -1,5 +1,6 @@
+import logging
 import time
-from typing import Dict, Any, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 # Label -> value, or an ordered list of {'label': ..., 'value': ...}.
 LoginDetails = Union[Dict[str, Union[str, int, float]], List[Dict[str, Any]]]
@@ -7,11 +8,14 @@ from urllib.parse import quote
 from ..http_client import HttpClient
 from ..exceptions import TouchQueTimeoutException, TouchQueRejectedException, TouchQuePasskeyRequiredError, TouchQueConfigException
 
+logger = logging.getLogger('touchque')
+
+
 class Login:
     def __init__(self, http: HttpClient):
         self._http = http
 
-    def request(self, external_username: str, type: str = 'LOGIN', reference_id: Optional[str] = None, client_ip: Optional[str] = None, user_agent: Optional[str] = None, require_biometric: bool = False, require_number_match: bool = False, details: Optional[LoginDetails] = None, browser_proof: Optional[str] = None) -> Dict[str, Any]:
+    def request(self, external_username: str, type: str = 'LOGIN', reference_id: Optional[str] = None, client_ip: Optional[str] = None, user_agent: Optional[str] = None, require_biometric: bool = False, require_number_match: bool = False, details: Optional[LoginDetails] = None, browser_proof: Optional[str] = None, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Request a 2FA login/approval from the user's mobile device.
 
@@ -34,6 +38,9 @@ class Login:
         ``risk.check`` can let the same browser in without asking. Pass it
         through untouched; an invalid proof only means "a browser TouchQue
         does not know".
+
+        ``context``: for your TouchQue Actions only (``event.context``): roles,
+        plan, amount… Any JSON object up to 4 KB. Never shown on the phone.
         """
         payload = {
             'externalUsername': external_username,
@@ -53,6 +60,8 @@ class Login:
             payload['details'] = details
         if browser_proof:
             payload['browserProof'] = browser_proof
+        if context:
+            payload['context'] = context
 
         return self._http.post('/login/request', payload)
 
@@ -60,17 +69,39 @@ class Login:
         """Check the current status of a login request."""
         return self._http.get(f"/login/status/{quote(request_id, safe='')}")
 
-    def verify(self, external_username: str, type: str = 'LOGIN', reference_id: Optional[str] = None, client_ip: Optional[str] = None, user_agent: Optional[str] = None, require_biometric: bool = False, require_number_match: bool = False, timeout_ms: int = 30000, details: Optional[LoginDetails] = None, browser_proof: Optional[str] = None) -> Dict[str, Any]:
+    def verify(self, external_username: str, type: str = 'LOGIN', reference_id: Optional[str] = None, client_ip: Optional[str] = None, user_agent: Optional[str] = None, require_biometric: bool = False, require_number_match: bool = False, timeout_ms: int = 30000, details: Optional[LoginDetails] = None, browser_proof: Optional[str] = None, on_challenge: Optional[Callable[[Dict[str, Any]], Any]] = None, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Request a login and wait (poll) until the user approves or rejects it.
+
+        With number matching (your ``require_number_match``, a workspace policy
+        or the risk engine can turn it on) the user must pick a number on the
+        phone. ``on_challenge`` is called once, right after the request is
+        created and before any waiting, with ``{'requestId', 'challengeCode',
+        'expiresAt', 'reasons', 'caseCode'}``: show ``challengeCode`` to the
+        user now; the phone asks for it. An exception it raises is logged and
+        ignored (verify keeps waiting). It is not called when only a passkey
+        can approve::
+
+            tq.login.verify(user, 'SEND_MONEY',
+                            on_challenge=lambda c: c.get('challengeCode') and show(f"Pick {c['challengeCode']} on your phone"))
 
         Raises ``TouchQuePasskeyRequiredError`` when a passkey must approve it:
         a phishing-resistant policy (``reason='policy'``, no push sent), or the
         user tapped Approve during a call (``reason='step_up'``, Vishing Shield):
         finish it in the browser with ``@touchque/web``."""
-        request_result = self.request(external_username, type, reference_id, client_ip, user_agent, require_biometric, require_number_match, details, browser_proof)
+        request_result = self.request(external_username, type, reference_id, client_ip, user_agent, require_biometric, require_number_match, details, browser_proof, context)
         request_id = request_result['requestId']
         if request_result.get('requiresPasskey'):
             raise TouchQuePasskeyRequiredError(request_id)
+
+        if on_challenge is not None:
+            challenge = {'requestId': request_id, 'expiresAt': request_result.get('expiresAt')}
+            for key in ('challengeCode', 'reasons', 'caseCode'):
+                if request_result.get(key):
+                    challenge[key] = request_result[key]
+            try:
+                on_challenge(challenge)
+            except Exception as err:  # noqa: BLE001 — the user's callback must not stop the wait
+                logger.warning('[TouchQue] on_challenge failed: %s', err)
 
         start_time = time.time() * 1000
         poll_interval_sec = 0.4

@@ -19,6 +19,7 @@ class TouchQueAPIException(TouchQueException):
         attempts_left: Optional[int] = None,
         retry_after: Optional[int] = None,
         data: Optional[Dict[str, Any]] = None,
+        case_code: Optional[str] = None,
     ):
         super().__init__(message, data=data)
         #: HTTP status code (e.g. 404, 429, 423).
@@ -31,6 +32,10 @@ class TouchQueAPIException(TouchQueException):
         self.attempts_left = attempts_left
         #: Seconds to wait before retrying (429 / 423).
         self.retry_after = retry_after
+        #: "Why?" case code of a refusal (``K7P-2QX``): show it to the user
+        #: ("Tell your support team: K7P-2QX"); your team opens the decision by it
+        #: in the dashboard. ``None`` for other errors.
+        self.case_code = case_code
 
 
 class TouchQueNetworkException(TouchQueException):

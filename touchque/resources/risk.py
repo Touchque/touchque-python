@@ -34,13 +34,17 @@ def parse_risk_check(raw: Any) -> Dict[str, Any]:
                 text = r.get('text')
                 reasons.append({'code': r['code'], 'text': text if isinstance(text, str) else ''})
     assurance = body.get('assurance')
-    return {
+    out = {
         # `is not False`: only the boolean False skips the push (0, None, 'false' ask).
         'prompt': body.get('prompt') is not False,
         'reasons': reasons,
         'assurance': assurance if isinstance(assurance, str) and assurance in _ASSURANCE else 'normal',
         'silentMode': 'shadow' if body.get('silentMode') == 'shadow' else 'enforce',
     }
+    # "Why?": the check's case code (K7P-2QX), to show the user.
+    if isinstance(body.get('caseCode'), str):
+        out['caseCode'] = body['caseCode']
+    return out
 
 
 class Risk:
@@ -58,6 +62,7 @@ class Risk:
         user_agent: Optional[str] = None,
         browser_proof: Optional[str] = None,
         max_age_seconds: Optional[int] = None,
+        context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Should this sign-in ask the phone? Sends nothing to the phone.
 
@@ -79,6 +84,7 @@ class Risk:
         :param max_age_seconds: your own limit on how long ago the last phone
             approval in this browser may be (integer, ``0`` = always ask).
             TouchQue never goes beyond its own limit (7 days).
+        :param context: for your TouchQue Actions only (``event.context``).
         """
         if not external_username:
             raise TouchQueConfigException('risk.check() needs the user (external_username)')
@@ -93,6 +99,8 @@ class Risk:
             payload['browserProof'] = browser_proof
         if max_age_seconds is not None:
             payload['maxAgeSeconds'] = max_age_seconds
+        if context:
+            payload['context'] = context
         return parse_risk_check(self._http.post('/risk/check', payload))
 
     def browsers(self, external_username: str) -> Dict[str, Any]:
