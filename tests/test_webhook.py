@@ -83,6 +83,14 @@ def test_rejects_a_missing_signature():
         make_webhook().verify(json.dumps(fresh_payload()))
 
 
+def test_rejects_a_non_ascii_signature_as_a_bad_signature():
+    payload = fresh_payload()
+    with pytest.raises(TouchQueWebhookSignatureException):
+        make_webhook().verify(json.dumps(payload), "é")
+    with pytest.raises(TouchQueWebhookSignatureException):
+        make_webhook().verify(json.dumps({**payload, "signature": "é" * 64}))
+
+
 def test_rejects_malformed_json():
     with pytest.raises(TouchQueWebhookSignatureException):
         make_webhook().verify("not json")
@@ -206,3 +214,14 @@ def test_memory_replay_cache_forgets_expired_entries(monkeypatch):
     assert cache.check_and_set("x", 10) is False
     clock[0] += 11
     assert cache.check_and_set("x", 10) is True
+
+
+def test_mobile_recovery_and_assist_event_constants_match_the_backend():
+    # The API server sends exactly these names for the Mobile SDK, recovery and the help desk.
+    from touchque import WebhookEvents
+
+    assert WebhookEvents.MOBILE_PUSH == "MOBILE_PUSH"
+    recovery = ["STARTED", "DEVICE_BOUND", "COOLING", "COMPLETED", "VETOED", "EXPIRED", "FAILED"]
+    assist = ["OPENED", "ENDED", "CHECK_PASSED", "CHECK_FAILED", "UNFROZEN", "CLAIM_CONFIRMED", "CLAIM_UNVERIFIED"]
+    for name in ["RECOVERY_" + s for s in recovery] + ["ASSIST_" + s for s in assist]:
+        assert getattr(WebhookEvents, name) == name

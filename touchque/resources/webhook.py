@@ -22,6 +22,8 @@ class WebhookReasons:
     USER_REPORTED_FRAUD = 'user_reported_fraud'
     #: The user said someone on the phone told them to approve: 2FA is frozen; treat it as a takeover in progress.
     USER_REPORTED_COACHED = 'user_reported_coached'
+    #: An AI agent's request: the user said no and blocked the agent from asking them again (no 2FA freeze).
+    USER_BLOCKED_AGENT = 'user_blocked_agent'
     RISK_REVERSED = 'risk_reversed'
     RISK_STEP_UP = 'risk_step_up'
     APPROVAL_SIGNATURE_INVALID = 'approval_signature_invalid'
@@ -38,10 +40,84 @@ class WebhookEvents:
     DEVICE_UNLINKED = 'DEVICE_UNLINKED'
     PASSKEY_REGISTERED = 'PASSKEY_REGISTERED'
     PASSKEY_DELETED = 'PASSKEY_DELETED'
+    #: Device risk: an identification or a device_risk.check raised a signal that asks for more. Never a trait.
+    DEVICE_RISK_SIGNAL = 'DEVICE_RISK_SIGNAL'
+    #: Device risk: an alert rule of the workspace went off.
+    DEVICE_RISK_ALERT = 'DEVICE_RISK_ALERT'
     #: After the call, the user confirmed a provisional approval was theirs: critical actions are allowed again.
     APPROVAL_RECONFIRMED = 'APPROVAL_RECONFIRMED'
     #: The user took an approval back (``reason``: ``COACHED`` or ``UNDO``): end the session built on it.
     APPROVAL_REVOKED = 'APPROVAL_REVOKED'
+    # AI agents (client.agents): changes partners may act on, and what TouchQue noticed.
+    #: An AI agent was registered.
+    AGENT_CREATED = 'AGENT_CREATED'
+    #: An AI agent was suspended (through the API or the dashboard): its tokens stopped working.
+    AGENT_SUSPENDED = 'AGENT_SUSPENDED'
+    #: An AI agent may act again.
+    AGENT_RESUMED = 'AGENT_RESUMED'
+    #: An AI agent was revoked for good.
+    AGENT_REVOKED = 'AGENT_REVOKED'
+    #: A key was added to an AI agent.
+    AGENT_KEY_ADDED = 'AGENT_KEY_ADDED'
+    #: A key was removed from an AI agent; tokens bound to it stopped working.
+    AGENT_KEY_REMOVED = 'AGENT_KEY_REMOVED'
+    #: The kill switch stopped every AI agent of the workspace.
+    AGENTS_PAUSED = 'AGENTS_PAUSED'
+    #: The kill switch was turned off.
+    AGENTS_RESUMED = 'AGENTS_RESUMED'
+    #: An AI agent's policy changed.
+    AGENT_POLICY_CHANGED = 'AGENT_POLICY_CHANGED'
+    AGENT_WORKSPACE_POLICY_CHANGED = 'AGENT_WORKSPACE_POLICY_CHANGED'
+    #: An approval token was used.
+    AGENT_APPROVAL_REDEEMED = 'AGENT_APPROVAL_REDEEMED'
+    #: A person stopped an AI agent from asking them ("this wasn't me", coached, or three rejections).
+    AGENT_BLOCKED_BY_PERSON = 'AGENT_BLOCKED_BY_PERSON'
+    #: An admin let an AI agent ask a person again.
+    AGENT_UNBLOCKED_FOR_PERSON = 'AGENT_UNBLOCKED_FOR_PERSON'
+    #: An AI agent sent the same request to the same person three times in 10 minutes.
+    AGENT_LOOP_DETECTED = 'AGENT_LOOP_DETECTED'
+    #: An AI agent asked a person for a mandate.
+    AGENT_MANDATE_REQUESTED = 'AGENT_MANDATE_REQUESTED'
+    #: A mandate was ended.
+    AGENT_MANDATE_REVOKED = 'AGENT_MANDATE_REVOKED'
+    #: An AI agent's text carried an instruction to the model or a link that carries data; the request was refused.
+    AGENT_INJECTION_SUSPECTED = 'AGENT_INJECTION_SUSPECTED'
+    #: An approval came back sooner than a person can answer; it is never usable.
+    AGENT_INHUMAN_APPROVAL = 'AGENT_INHUMAN_APPROVAL'
+    #: A new or renamed AI agent's name read like another agent's; it was refused.
+    AGENT_LOOKALIKE_NAME = 'AGENT_LOOKALIKE_NAME'
+    #: Mobile SDK: send this push with your own keys (``mobile_push_from_webhook``).
+    MOBILE_PUSH = 'MOBILE_PUSH'
+    # Never Locked Out (client.recovery): every step of a recovery.
+    #: A recovery started; the vouchers were asked.
+    RECOVERY_STARTED = 'RECOVERY_STARTED'
+    #: The new phone was bound to the recovery.
+    RECOVERY_DEVICE_BOUND = 'RECOVERY_DEVICE_BOUND'
+    #: The vouchers' quorum was reached: the account moves at ``coolOffUntil`` unless vetoed.
+    RECOVERY_COOLING = 'RECOVERY_COOLING'
+    #: The account moved to the new phone (``method``: ``vouch`` or ``old_phone``); ``DEVICE_LINKED`` follows.
+    RECOVERY_COMPLETED = 'RECOVERY_COMPLETED'
+    #: The recovery was stopped (the old phone, an admin or a voucher).
+    RECOVERY_VETOED = 'RECOVERY_VETOED'
+    #: The recovery ended unused (``reason``: ``not_bound`` in time, or ``replaced`` by a new one).
+    RECOVERY_EXPIRED = 'RECOVERY_EXPIRED'
+    #: The recovery ended without a move (``reason``, e.g. ``not_enough_approvals``).
+    RECOVERY_FAILED = 'RECOVERY_FAILED'
+    # Help desk (client.assist): IT working on a person's account.
+    #: A help desk agent started working on the account.
+    ASSIST_OPENED = 'ASSIST_OPENED'
+    #: The help desk session ended.
+    ASSIST_ENDED = 'ASSIST_ENDED'
+    #: The person confirmed the help desk's check on their phone.
+    ASSIST_CHECK_PASSED = 'ASSIST_CHECK_PASSED'
+    #: The check failed (``outcome``: ``wrong_number``, ``not_me``, ``coached``, ``declined``): page someone.
+    ASSIST_CHECK_FAILED = 'ASSIST_CHECK_FAILED'
+    #: The help desk lifted the person's approval freeze after a check on the phone.
+    ASSIST_UNFROZEN = 'ASSIST_UNFROZEN'
+    #: The person checked that the agent from IT is really working on their account.
+    ASSIST_CLAIM_CONFIRMED = 'ASSIST_CLAIM_CONFIRMED'
+    #: Nobody from IT was working on the account: someone is pretending to be IT. No ``assistId``; page someone.
+    ASSIST_CLAIM_UNVERIFIED = 'ASSIST_CLAIM_UNVERIFIED'
 
 
 class ReplayCache:
@@ -117,8 +193,9 @@ class Webhook:
         decoded payload.
 
         Args:
-            raw_body: The raw request body, exactly as received (do not
-                re-serialize it).
+            raw_body: The raw request body as text, exactly as received (do
+                not re-serialize it), e.g. Flask's
+                ``request.get_data(as_text=True)``.
             signature: The ``x-signature`` header value. Optional — if omitted,
                 the ``signature`` field carried inside the body is used.
             tolerance_seconds: Reject a callback whose signed ``timestamp`` is
@@ -155,7 +232,8 @@ class Webhook:
         )
         # Do NOT put the expected signature in the exception — a caller that
         # surfaces the error text would hand an attacker a signing oracle.
-        if not hmac.compare_digest(mac.hexdigest(), provided):
+        # Compared as bytes: compare_digest raises TypeError for a str with non-ASCII text.
+        if not hmac.compare_digest(mac.hexdigest().encode("ascii"), provided.encode("utf-8")):
             raise TouchQueWebhookSignatureException("Invalid webhook signature")
 
         # TouchQue always signs a timestamp, so a missing or unparseable one

@@ -63,6 +63,32 @@ async def test_silent_sign_in_resolves_at_once_for_a_known_browser(fake_api):
     assert fake_api.last_check()['maxAgeSeconds'] == 3600
 
 
+@pytest.mark.anyio
+async def test_the_exception_handler_flattens_touchque_and_leaves_other_errors_to_fastapi(fake_api):
+    from fastapi import HTTPException
+    from touchque.contrib.fastapi import install_touchque_exception_handler
+    fake_api.link('jane@acme.com')
+    tq = TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
+    app = make_app(tq)
+    install_touchque_exception_handler(app)
+
+    @app.get('/cached')
+    async def cached():
+        raise HTTPException(status_code=304)
+
+    @app.get('/missing')
+    async def missing():
+        raise HTTPException(status_code=404, detail='nope')
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+        first = await client.post('/transfer', json={'amount': 5}, headers={'x-user': 'jane@acme.com'})
+        assert first.status_code == 202 and first.json()['touchque']['state'] == 'waiting'
+        not_modified = await client.get('/cached')
+        assert not_modified.status_code == 304 and not_modified.content == b''
+        not_found = await client.get('/missing')
+        assert not_found.status_code == 404 and not_found.json() == {'detail': 'nope'}
+
+
 @pytest.fixture
 def anyio_backend():
     return 'asyncio'

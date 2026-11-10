@@ -257,7 +257,7 @@ def run_guard(
             'error': {'code': 'misconfigured', 'message': 'Two-factor approval is not configured correctly.'},
         }}
     except (TouchQueNetworkException, TouchQueAPIException) as err:
-        logger.error('[TouchQue] approval failed: %s', err)
+        logger.error('[TouchQue] approval failed: %s: %s', type(err).__name__, err)
         return {'status': 503, 'body': {
             'touchque': {'state': 'blocked', 'reason': 'unavailable'},
             'error': {'code': 'unavailable', 'message': 'Two-factor approval is temporarily unavailable.'},
@@ -286,5 +286,5 @@ def _silent_approval(client: 'TouchQue', user: str, action: str, browser_proof: 
             'reasons': reasons if isinstance(reasons, list) else [],
         }
     except Exception as err:  # noqa: BLE001 - fail closed: any error asks on the phone as usual
-        logger.warning('[TouchQue] silent sign-in check failed, asking on the phone: %s', err)
+        logger.warning('[TouchQue] silent sign-in check failed, asking on the phone: %s: %s', type(err).__name__, err)
         return None

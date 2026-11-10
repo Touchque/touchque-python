@@ -81,6 +81,12 @@ class FakeApi:
         with urllib.request.urlopen(self.base_url + '/__test/last-check') as resp:
             return json.loads(resp.read())
 
+    def last_device_risk_search(self):
+        """Device risk: the query of the last GET /device-risk/events."""
+        import urllib.request
+        with urllib.request.urlopen(self.base_url + '/__test/last-device-risk-search') as resp:
+            return json.loads(resp.read())
+
     def close(self):
         self._proc.terminate()
         self._proc.wait(timeout=5)

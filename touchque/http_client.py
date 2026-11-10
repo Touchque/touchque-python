@@ -8,15 +8,22 @@ from typing import Dict, Any, Optional
 from urllib.parse import urlencode
 
 from .config import Config
-from .exceptions import TouchQueAPIException, TouchQueNetworkException
+from .exceptions import TouchQueAPIException, TouchQueNetworkException, api_exception
 
-SDK_VERSION = '4.0.0'
+SDK_VERSION = '4.2.0'
+
+def _query_value(value: Any) -> Any:
+    # The API reads only 'true' / 'false'; urlencode would send Python's 'True' / 'False'.
+    if isinstance(value, bool):
+        return 'true' if value else 'false'
+    return value
+
 
 def _build_query(params: Optional[Dict[str, Any]]) -> str:
     """Deterministic query string: keys sorted, `?`-prefixed (or '')."""
     if not params:
         return ''
-    items = sorted((k, v) for k, v in params.items() if v is not None)
+    items = sorted((k, _query_value(v)) for k, v in params.items() if v is not None)
     if not items:
         return ''
     return '?' + urlencode(items)
@@ -73,6 +80,20 @@ class HttpClient:
             raise TouchQueNetworkException(f"Network Error: {e}") from e
         return self._handle_response(response)
 
+    def get_text(self, endpoint: str) -> str:
+        """A GET whose answer is a file (CSV or JSON lines), returned as text."""
+        headers = self._auth_headers('GET', endpoint, '')
+        try:
+            response = requests.get(
+                f"{self.config.base_url}{endpoint}", headers=headers,
+                timeout=self.config.timeout / 1000.0, allow_redirects=False,
+            )
+        except requests.exceptions.RequestException as e:
+            raise TouchQueNetworkException(f"Network Error: {e}") from e
+        if response.status_code >= 400:
+            self._handle_response(response)
+        return response.text
+
     def delete(self, endpoint: str) -> Dict[str, Any]:
         headers = self._auth_headers('DELETE', endpoint, '')
         try:
@@ -115,7 +136,7 @@ class HttpClient:
                     retry_after = int(header_val) if header_val else None
                 except ValueError:
                     retry_after = None
-            raise TouchQueAPIException(
+            raise api_exception(
                 error_message,
                 status=response.status_code,
                 code=response_data.get('code'),

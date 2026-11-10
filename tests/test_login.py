@@ -65,6 +65,56 @@ def test_verify_raises_timeout_exception_after_timeout_ms_elapses(_sleep):
         login.verify("a@b.com", timeout_ms=1)
 
 
+@patch("touchque.resources.login.time.sleep", return_value=None)
+def test_wait_for_approval_returns_approved_true_once_confirmed(sleep):
+    http = MagicMock()
+    http.get.side_effect = [{"status": "PENDING"}, {"status": "CONFIRMED", "confirmedVia": "DEVICE", "provisional": True}]
+    login = Login(http)
+
+    result = login.wait_for_approval("req_1", poll_interval_ms=250)
+
+    assert result["approved"] is True
+    assert result["status"] == "CONFIRMED"
+    assert result["requestId"] == "req_1"
+    assert result["confirmedVia"] == "DEVICE"
+    assert result["provisional"] is True
+    http.get.assert_called_with("/login/status/req_1")
+    http.post.assert_not_called()
+    sleep.assert_called_once_with(0.25)
+
+
+@patch("touchque.resources.login.time.sleep", return_value=None)
+def test_wait_for_approval_raises_rejected_or_timeout_for_a_closed_request(_sleep):
+    http = MagicMock()
+    http.get.return_value = {"status": "REJECTED"}
+    with pytest.raises(TouchQueRejectedException):
+        Login(http).wait_for_approval("req_1")
+
+    http.get.return_value = {"status": "EXPIRED"}
+    with pytest.raises(TouchQueTimeoutException):
+        Login(http).wait_for_approval("req_1")
+
+
+@patch("touchque.resources.login.time.sleep", return_value=None)
+def test_wait_for_approval_raises_timeout_after_timeout_ms_elapses(_sleep):
+    http = MagicMock()
+    http.get.return_value = {"status": "PENDING"}
+
+    with pytest.raises(TouchQueTimeoutException):
+        Login(http).wait_for_approval("req_1", timeout_ms=1)
+
+
+@patch("touchque.resources.login.time.sleep", return_value=None)
+def test_wait_for_approval_raises_passkey_required_when_the_request_moves_to_a_passkey(_sleep):
+    from touchque import TouchQuePasskeyRequiredError
+    http = MagicMock()
+    http.get.side_effect = [{"status": "PENDING"}, {"status": "PENDING", "requiresPasskey": True}]
+    with pytest.raises(TouchQuePasskeyRequiredError) as err:
+        Login(http).wait_for_approval("req_1")
+    assert err.value.request_id == "req_1"
+    assert err.value.reason == "step_up"
+
+
 def test_approve_with_recovery_code_posts_expected_payload():
     http = MagicMock()
     http.post.return_value = {"success": True, "message": "approved"}
@@ -122,3 +172,45 @@ def test_request_and_verify_forward_the_browser_proof():
     http.get.return_value = {"status": "CONFIRMED"}
     Login(http).verify("a@b.com", browser_proof="eyJ2IjoxfQ")
     assert http.post.call_args[0][1]["browserProof"] == "eyJ2IjoxfQ"
+
+
+def test_request_and_verify_send_challenge_digits_only_as_2_or_3():
+    http = MagicMock()
+    http.post.return_value = {"requestId": "req_1", "message": "ok", "expiresAt": "t"}
+    login = Login(http)
+
+    login.request("a@b.com", require_number_match=True, challenge_digits=3)
+    assert http.post.call_args[0][1] == {"externalUsername": "a@b.com", "type": "LOGIN", "requireNumberMatch": True, "challengeDigits": 3}
+    login.request("a@b.com", challenge_digits=4)
+    assert "challengeDigits" not in http.post.call_args[0][1]
+
+
+def test_request_sends_expires_in_when_given():
+    http = MagicMock()
+    http.post.return_value = {"requestId": "req_1", "message": "ok", "expiresAt": "t"}
+    login = Login(http)
+    login.request("a@b.com", type="AGENT_ON_BEHALF", expires_in=180, client_signals="eyJ2IjoxfQ")
+    assert http.post.call_args[0][1] == {"externalUsername": "a@b.com", "type": "AGENT_ON_BEHALF", "expiresIn": 180, "clientSignals": "eyJ2IjoxfQ"}
+    login.request("a@b.com")
+    assert "expiresIn" not in http.post.call_args[0][1]
+
+
+def test_request_forwards_security_changes_destination_and_locale():
+    from datetime import datetime, timezone
+    http = MagicMock()
+    http.post.return_value = {"requestId": "req_1", "message": "ok", "expiresAt": "t", "destination": {"known": False, "lookalike": []}}
+    login = Login(http)
+
+    login.request(
+        "a@b.com", type="PAYOUT",
+        security_changes={"mfa": datetime(2026, 10, 26, 8, 0, tzinfo=timezone.utc), "password": datetime(2026, 10, 25, 8, 0), "device": 1761465600000, "email": None},
+        destination={"kind": "iban", "value": "TR33 0006 1005 1978 6457 8413 26", "known": []},
+        locale="en",
+    )
+
+    http.post.assert_called_once_with("/login/request", {
+        "externalUsername": "a@b.com", "type": "PAYOUT",
+        "securityChanges": {"mfa": "2026-10-26T08:00:00+00:00", "password": "2026-10-25T08:00:00+00:00", "device": 1761465600000},
+        "destination": {"kind": "iban", "value": "TR33 0006 1005 1978 6457 8413 26", "known": []},
+        "locale": "en",
+    })

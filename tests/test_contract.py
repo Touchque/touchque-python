@@ -5,7 +5,7 @@ import pytest
 
 from touchque import Config, TouchQue
 from touchque.exceptions import TouchQueConfigException
-from touchque.guard import run_guard
+from touchque.guard import is_status_poll, run_guard
 from .fake_api import fake_api  # noqa: F401 (fixture)
 
 
@@ -48,8 +48,19 @@ def test_unknown_action_is_a_clear_config_error(fake_api):
     api = fake_api
     api.link('jane@acme.com')
     tq = client_for(api)
-    with pytest.raises(TouchQueConfigException, match='NOT_DEFINED'):
+    with pytest.raises(TouchQueConfigException, match='NOT_DEFINED') as exc:
         tq.start('NOT_DEFINED', 'jane@acme.com')
+    assert 'client.action_types.define("NOT_DEFINED")' in str(exc.value)
+
+
+def test_a_non_ascii_guard_token_is_just_not_valid(fake_api):
+    """WSGI/ASGI decode headers as latin-1: such a token is refused, never a 500."""
+    api = fake_api
+    api.link('jane@acme.com')
+    tq = client_for(api)
+    for token in ('v1.abc.\xe9', 'v1.\xe9.abc'):
+        assert is_status_poll(tq, 'jane@acme.com', 'LOGIN', token=token) is False
+        assert run_guard(tq, 'jane@acme.com', 'LOGIN', token=token)['status'] == 202
 
 
 def test_action_types_define_creates_and_updates(fake_api):

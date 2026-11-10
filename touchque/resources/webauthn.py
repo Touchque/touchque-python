@@ -63,6 +63,20 @@ class WebAuthn:
         return self._http.post('/webauthn/login/verify', {'requestId': request_id, 'response': response})
 
     # ── passwordless-primary login (no password, no prior login.request) ────
+    def primary_availability(self) -> Dict[str, Any]:
+        """Whether passkey sign-in (``TenantPolicy.passwordlessLoginEnabled``)
+        is on for your workspace. Ask before your sign-in page shows its passkey
+        button and passkey autofill: when it is off, ``primary_options`` answers
+        403 ``passwordless_login_disabled``. Read-only.
+
+        Returns ``{ enabled, userVerification }`` (``userVerification`` is
+        ``'required'``, ``'preferred'``, or ``None`` when off).
+        """
+        raw = self._http.get('/webauthn/authenticate/primary/availability') or {}
+        enabled = raw.get('enabled') is True
+        uv = raw.get('userVerification')
+        return {'enabled': enabled, 'userVerification': uv if enabled and uv in ('required', 'preferred') else None}
+
     def primary_options(self, external_username: Optional[str] = None) -> Dict[str, Any]:
         """Step 1 of a passwordless-primary login. Requires
         ``TenantPolicy.passwordlessLoginEnabled``. A 404 ``no_passkey_registered``

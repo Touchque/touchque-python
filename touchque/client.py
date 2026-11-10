@@ -4,11 +4,18 @@ from .config import Config
 from .http_client import HttpClient
 from .resources.action_types import ActionTypes
 from .resources.actions import Actions
+from .resources.agents import Agents
+from .resources.identity import Identity
 from .resources.auth import Auth
 from .resources.login import Login
 from .resources.offline import Offline
 from .resources.risk import Risk
 from .resources.recovery import Recovery
+from .resources.mobile import Mobile
+from .resources.qr_pairings import QrPairings
+from .resources.device_risk import DeviceRisk
+from .resources.safe_guard import SafeGuard
+from .resources.assist import Assist
 from .resources.webauthn import WebAuthn
 from .resources.webhook import Webhook
 from .steps import LoginDetails, check as _check, complete as _complete, start as _start
@@ -45,6 +52,21 @@ class TouchQue:
         self.risk = Risk(http)
         #: Never Locked Out: move a user whose phone is gone to a new phone, with colleagues vouching.
         self.recovery = Recovery(http)
+        #: Help desk: IT working on a person's account in the open, and checks on their phone before sensitive actions.
+        self.assist = Assist(http)
+        #: AI agents as identities of their own: register (public key), suspend, revoke, kill switch.
+        #: The agent itself uses ``touchque.TouchQueAgent``.
+        self.agents = Agents(http)
+        # TouchQue Login Management API: customers' accounts, roles, organizations, apps
+        self.identity = Identity(http)
+        #: Mobile SDK: your own iOS/Android app approves for your users (enrollment tokens, devices, settings).
+        self.mobile = Mobile(http)
+        #: Pairing a browser by QR code: the phone that scans it is the one asked to approve.
+        self.qr_pairings = QrPairings(http)
+        #: Device risk: the device on your sign-up, reset, sign-in or approval page (a paid add-on).
+        self.device_risk = DeviceRisk(http)
+        #: Safe Guard: Safe transactions approved on the approver's phone, for TouchQueSafeGuard.
+        self.safe_guard = SafeGuard(http)
 
     # ── headless step-up (see touchque.steps / touchque.guard) ─────────────
 

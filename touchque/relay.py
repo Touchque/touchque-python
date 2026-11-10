@@ -136,7 +136,7 @@ def _auth_result_error(error: BaseException) -> RelayResponse:
         data = getattr(error, 'data', None)
         data = data if isinstance(data, dict) else {}
         return _json({'error': data.get('error') or data.get('message') or str(error) or 'request_failed'}, status)
-    logger.error('[TouchQue Relay Error] %r', error)
+    logger.error('[TouchQue Relay Error] %s: %s', type(error).__name__, error)
     return _json({'error': '2FA_UNAVAILABLE', 'message': 'The 2FA verification service is temporarily unavailable.'},
                  503)
 

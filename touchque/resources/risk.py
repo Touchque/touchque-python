@@ -63,6 +63,9 @@ class Risk:
         browser_proof: Optional[str] = None,
         max_age_seconds: Optional[int] = None,
         context: Optional[Dict[str, Any]] = None,
+        client_signals: Optional[str] = None,
+        device_risk: Optional[str] = None,
+        device_risk_request_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Should this sign-in ask the phone? Sends nothing to the phone.
 
@@ -85,6 +88,11 @@ class Risk:
             approval in this browser may be (integer, ``0`` = always ask).
             TouchQue never goes beyond its own limit (7 days).
         :param context: for your TouchQue Actions only (``event.context``).
+        :param client_signals: the end user's page check from ``@touchque/web``
+            (``startClientSignals().encode()``): software driving the browser is never silent.
+        :param device_risk: the page's device report from ``@touchque/web``
+            (``deviceRisk.collect({ purpose: 'sign_in' })``): a device signal is never silent.
+        :param device_risk_request_id: the page's identification (``deviceRisk.identify()``), preferred.
         """
         if not external_username:
             raise TouchQueConfigException('risk.check() needs the user (external_username)')
@@ -97,6 +105,12 @@ class Risk:
             payload['userAgent'] = user_agent
         if browser_proof:
             payload['browserProof'] = browser_proof
+        if client_signals:
+            payload['clientSignals'] = client_signals
+        if device_risk:
+            payload['deviceRisk'] = device_risk
+        if device_risk_request_id:
+            payload['deviceRiskRequestId'] = device_risk_request_id
         if max_age_seconds is not None:
             payload['maxAgeSeconds'] = max_age_seconds
         if context:

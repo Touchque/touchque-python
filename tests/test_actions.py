@@ -100,3 +100,18 @@ def test_action_types_moved(fake_api):
     tq.action_types.define('EXPORT_DATA', name='Export data', critical=True)
     last = fake_api.calls()[-1]
     assert (last['method'], last['path'], last['body']) == ('POST', '/action-types', {'type': 'EXPORT_DATA', 'name': 'Export data', 'critical': True})
+
+
+def test_action_type_second_thought_and_a_look_alike_destination(fake_api):
+    tq = client_for(fake_api)
+    t = tq.action_types.define('PAYOUT', name='Payout', second_thought={'questions': ['someone_guiding', 'safe_account'], 'locale': 'en'})
+    assert t['secondThought'] == {'questions': ['someone_guiding', 'safe_account'], 'locale': 'en'}
+    tq.action_types.define('PAYOUT', name='Payout')
+    assert 'secondThought' not in fake_api.calls()[-1]['body']
+    tq.action_types.define('PAYOUT', name='Payout', second_thought=None)
+    assert fake_api.calls()[-1]['body']['secondThought'] is None
+
+    fake_api.link('payee@example.com')
+    r = tq.login.request('payee@example.com', 'LOGIN',
+                         destination={'kind': 'iban', 'value': 'TR33 0006 1005 1978 6000 0013 26', 'known': ['TR33 0006 1005 1978 6457 8413 26']})
+    assert r['destination'] == {'known': False, 'lookalike': [{'field': 'iban', 'reason': 'same_start_and_end', 'similarTo': 'TR33…1326'}]}

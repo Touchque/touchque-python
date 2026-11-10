@@ -113,7 +113,7 @@ def start(client: 'TouchQue', action: str, user: str, details: Optional[LoginDet
             return {'state': 'rate_limited', 'retryAfter': err.retry_after, **why}
         if err.status == 400 and (code == 'unknown_action' or 'invalid action type' in str(err).lower()):
             raise TouchQueConfigException(
-                f'Unknown action "{action}". Create it once with client.actions.define("{action}") '
+                f'Unknown action "{action}". Create it once with client.action_types.define("{action}") '
                 'or in the Dashboard (Action Types).'
             ) from err
         if err.status == 403:
@@ -224,6 +224,9 @@ def verify_guard_token(api_secret: str, token: Optional[str]) -> Optional[Dict[s
     if len(parts) != 3 or parts[0] != 'v1':
         return None
     _, body, mac = parts
+    # A header may carry any latin-1 text; only an ASCII token can be one we signed.
+    if not body.isascii() or not mac.isascii():
+        return None
     expected = _b64u(hmac.new(_token_key(api_secret), body.encode('ascii'), hashlib.sha256).digest())
     if not hmac.compare_digest(expected, mac):
         return None

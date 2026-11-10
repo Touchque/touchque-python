@@ -42,6 +42,18 @@ def test_authenticate_options_and_verify():
     http.post.assert_called_once_with("/webauthn/login/verify", {"requestId": "req_1", "response": {"id": "a"}})
 
 
+def test_primary_availability_says_whether_passkey_sign_in_is_on():
+    http, wa = make()
+    http.get.return_value = {"enabled": True, "userVerification": "required"}
+    assert wa.primary_availability() == {"enabled": True, "userVerification": "required"}
+    http.get.assert_called_once_with("/webauthn/authenticate/primary/availability")
+
+    http.get.return_value = {"enabled": False, "userVerification": "required"}
+    assert wa.primary_availability() == {"enabled": False, "userVerification": None}
+    http.get.return_value = {}
+    assert wa.primary_availability() == {"enabled": False, "userVerification": None}
+
+
 def test_primary_options_and_verify():
     http, wa = make()
     http.post.return_value = {"attemptId": "att_1", "options": {}}

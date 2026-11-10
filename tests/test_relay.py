@@ -616,3 +616,17 @@ def test_adding_a_passkey_needs_the_phone(fake_api):
     done = call(h, 'POST', '/passkey/register/options', body={}, headers=token)
     assert done.status == 200 and done.body['challenge'] == 'reg-challenge'
     assert call(h, 'POST', '/passkey/register/options', body={}, headers=token).status != 200
+
+
+def test_the_sdk_prints_nothing_unless_the_app_configures_logging():
+    import subprocess
+    import sys
+    code = (
+        "import logging, touchque\n"
+        "logging.getLogger('touchque').error('[TouchQue] approval failed: X')\n"
+        "logging.getLogger('touchque').warning('[TouchQue] on_challenge failed: X')\n"
+    )
+    out = subprocess.run([sys.executable, '-W', 'ignore', '-c', code], capture_output=True, text=True, check=True)
+    assert (out.stdout, out.stderr) == ('', '')
+    configured = subprocess.run([sys.executable, '-W', 'ignore', '-c', 'import logging\nlogging.basicConfig()\n' + code], capture_output=True, text=True, check=True)
+    assert 'approval failed' in configured.stderr

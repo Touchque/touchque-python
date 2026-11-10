@@ -3,6 +3,7 @@ import pytest
 
 from touchque.resources.offline import Offline
 from touchque.exceptions import TouchQueAPIException
+from .fake_api import fake_api  # noqa: F401 (fixture)
 
 
 def test_challenge_posts_expected_fields():
@@ -71,3 +72,32 @@ def test_verify_totp_forwards_request_id_and_a_rejected_request_is_a_result():
 
     assert http.post.call_args[0][1]["requestId"] == "req-1"
     assert result["approved"] is False and result["reason"] == "request_rejected"
+
+
+def test_totp_verifiers_posts_users_and_window():
+    http = MagicMock()
+    http.post.return_value = {"users": []}
+    off = Offline(http)
+
+    off.totp_verifiers(["a@b.com"])
+    http.post.assert_called_with("/offline/totp/verifiers", {"externalUsernames": ["a@b.com"]})
+    off.totp_verifiers(["a@b.com"], from_step=10, steps=2)
+    http.post.assert_called_with("/offline/totp/verifiers", {"externalUsernames": ["a@b.com"], "fromStep": 10, "steps": 2})
+
+
+def test_match_totp_verifier_against_the_fake_api(fake_api):
+    from touchque import Config, TouchQue
+    import time as _time
+
+    fake_api.link("vpn@example.com")
+    tq = TouchQue(Config(api_key="tq_test_key", api_secret="test_secret", base_url=fake_api.base_url))
+    now = _time.time()
+    step = int(now // 30)
+    v = tq.offline.totp_verifiers(["vpn@example.com", "nobody@example.com"], from_step=step - 1, steps=4)
+    assert [u["externalUsername"] for u in v["users"]] == ["vpn@example.com"]
+    user = v["users"][0]
+    # The fake's code is K7P2QXA at every step.
+    assert Offline.match_totp_verifier(v, user, "k7p-2qxa", at=now) == step
+    assert Offline.match_totp_verifier(v, user, "K7P2QXB", at=now) is None
+    assert Offline.match_totp_verifier(v, user, "K7P2QXA", at=now + 3600) is None
+    assert Offline.match_totp_verifier(v, user, "K7P2QX1", at=now) is None

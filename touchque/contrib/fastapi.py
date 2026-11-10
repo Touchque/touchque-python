@@ -132,15 +132,18 @@ def RequireTouchQue(  # noqa: N802 — reads as a dependency factory, PascalCase
 
 def install_touchque_exception_handler(app: fastapi.FastAPI) -> None:
     """Optional: makes a raised TouchQue step return the SAME JSON shape as
-    the Django/Flask adapters (no ``{"detail": ...}`` wrapper)."""
+    the Django/Flask adapters (no ``{"detail": ...}`` wrapper). Every other
+    ``HTTPException`` goes to FastAPI's own handler, unchanged (no body on a
+    204 or 304)."""
     from fastapi import Request as _Request
+    from fastapi.exception_handlers import http_exception_handler
     from fastapi.responses import JSONResponse
 
     @app.exception_handler(HTTPException)
     async def _touchque_exception_handler(request: _Request, exc: HTTPException):  # type: ignore[no-redef]
         if isinstance(exc.detail, dict) and 'touchque' in exc.detail:
             return JSONResponse(exc.detail, status_code=exc.status_code, headers=exc.headers)
-        return JSONResponse({'detail': exc.detail}, status_code=exc.status_code, headers=exc.headers)
+        return await http_exception_handler(request, exc)
 
 
 async def _await(awaitable: Awaitable[Any]) -> Any:

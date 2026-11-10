@@ -38,6 +38,62 @@ class TouchQueAPIException(TouchQueException):
         self.case_code = case_code
 
 
+class TouchQueFeatureException(TouchQueAPIException):
+    """The organization behind your workspace cannot use this feature here (HTTP 403).
+
+    ``reason``:
+
+    - ``not_in_plan`` -- not in its plan (``feature_not_in_plan``): an owner or
+      admin adds it in the TouchQue dashboard;
+    - ``read_only`` -- being turned off (``feature_read_only``): reads still work
+      for 14 days, changes are refused;
+    - ``off`` -- switched off on this TouchQue deployment (``feature_off``).
+
+    ``feature`` is the catalog id (``device_risk``, ``ai_agents``, ``mobile_sdk``,
+    ``ciam``...). A subclass of TouchQueAPIException, so existing ``except``
+    blocks still catch it; catch one of the three subclasses to tell them apart.
+    """
+
+    reason_code = ''
+
+    def __init__(self, message: str, **kwargs: Any):
+        super().__init__(message, **kwargs)
+        data = self.data or {}
+        #: The catalog id of the feature (``device_risk``...), or None.
+        self.feature: Optional[str] = data.get('feature') if isinstance(data.get('feature'), str) else None
+        #: ``not_in_plan``, ``read_only`` or ``off``.
+        self.feature_reason = self.reason_code
+
+
+class TouchQueFeatureNotInPlanException(TouchQueFeatureException):
+    """``feature_not_in_plan``: the feature is not in the organization's plan."""
+    reason_code = 'not_in_plan'
+
+
+class TouchQueFeatureReadOnlyException(TouchQueFeatureException):
+    """``feature_read_only``: the feature is being turned off; reads work, changes are refused."""
+    reason_code = 'read_only'
+
+
+class TouchQueFeatureOffException(TouchQueFeatureException):
+    """``feature_off``: the feature is switched off on this TouchQue deployment."""
+    reason_code = 'off'
+
+
+_FEATURE_ERRORS = {
+    'feature_not_in_plan': TouchQueFeatureNotInPlanException,
+    'feature_read_only': TouchQueFeatureReadOnlyException,
+    'feature_off': TouchQueFeatureOffException,
+}
+
+
+def api_exception(message: str, **kwargs: Any) -> TouchQueAPIException:
+    """The exception for an error answer: a feature exception for the three feature codes, else TouchQueAPIException."""
+    data = kwargs.get('data') or {}
+    cls = _FEATURE_ERRORS.get(data.get('error')) if isinstance(data, dict) else None
+    return (cls or TouchQueAPIException)(message, **kwargs)
+
+
 class TouchQueNetworkException(TouchQueException):
     """Raised when the request never reached the API (DNS, connection, timeout)."""
     pass
@@ -93,3 +149,22 @@ class TouchQuePasskeyRequiredError(TouchQueException):
         super().__init__(message)
         self.request_id = request_id
         self.reason = reason
+
+
+class TouchQueApprovalError(TouchQueException):
+    """An AI agent's approval ended without a usable approval: ``status`` is
+    rejected, blocked, revoked, expired, stale (approved too long ago) or
+    redeemed (already used)."""
+
+    def __init__(self, approval_id: str, status: str, reason: Optional[str] = None):
+        super().__init__(f"TouchQue: approval '{approval_id}' is {status}" + (f' ({reason})' if reason else ''))
+        self.approval_id = approval_id
+        self.status = status
+        self.reason = reason
+
+
+class TouchQueApprovalMismatchError(TouchQueException):
+    """An approval token does not say what you are about to execute (another
+    person, action type, amount, recipient...), or it is not a valid token
+    from TouchQue. Do not execute."""
+    pass

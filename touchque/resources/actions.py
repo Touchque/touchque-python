@@ -104,7 +104,7 @@ class Actions:
         has ``deployed: False`` and ``approval['required']``.
 
         :param trigger: required for a new Action (``login.request``,
-            ``risk.check``, ``approval.decided``, …); cannot change later.
+            ``risk.check``, ``agent.approval``, ``approval.decided``, …); cannot change later.
         :param code: JavaScript exporting ``onExecute``.
         :param template: ``{'id': 'alert' | 'block_or_step_up' | ..., 'params': {...}}``
             instead of code.
