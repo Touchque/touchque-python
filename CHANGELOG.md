@@ -5,7 +5,7 @@ format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [4.2.0] — Unreleased
+## [4.2.0] — 2026-11-10
 
 ### Security
 - **The offline approval-token check refuses another workspace's token.** `GET /agents/jwks.json` is one key set for every Touchque workspace, and the check used to compare `aud` only when you passed an audience, so a token Touchque signed for someone else's workspace (their own phone, any person's name, any details) could pass your executor. Now:
@@ -42,7 +42,7 @@ format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Safe Guard:** `verify_safe_approval` without `purpose` now accepts only an approval to execute (`approve`). An approval that schedules a governance change covers neither the Safe nonce nor the gas fields, so it passes only with `purpose='schedule'`; before, either one was accepted. Name the purpose you will act on (`status()['safeTx']['purpose']`).
 - **Touchque Login:** `HostedLogin` and `MyAccount` refuse a plaintext `http://` domain except on this machine (`localhost`, `127.0.0.1`, `::1`, `*.localhost`), as `Config` does for `base_url`: authorization codes, PKCE verifiers, client secrets and tokens would travel in the clear.
 
-## [4.1.0] — Unreleased
+## [4.1.0] — not published (these changes ship in 4.2.0)
 
 ### Added
 - **Device risk events like a device-intelligence event, without raw traits:** `deviceRisk.check` and `getEvent` answers carry `network`, `velocity` and `bot`: the address as the risk engine saw it (country, region, city, never coordinates; the operator; `type` isp, hosting or tor; `timezoneMismatch` when the browser's clock does not fit the address), the visitor's counts (accounts, sign-ups, countries, stored-id resets, identifications in the last hour and day) and one answer to "a bot?" (`detected`, `suspected` or `not_detected`, with reasons). The field the script tag fills may now carry its pointer summary after the requestId: pass it as it came.
