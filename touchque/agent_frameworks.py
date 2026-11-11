@@ -3,7 +3,7 @@ whichever agent framework the agent is built with.
 
 One rule, an ``ApprovalPolicy``, says who approves (``user``), as which action
 type, and what the phone shows (``details``: RFC 9396 authorization details
-drawn from the tool's arguments). TouchQue draws the rows, the person types the
+drawn from the tool's arguments). Touchque draws the rows, the person types the
 number the conversation shows and confirms with Face ID, and the call runs only
 once they approved. The approval token (single use, bound to exactly what was
 approved) is there for the service that executes: ``current_approval()`` inside
@@ -13,7 +13,7 @@ the tool, or the MCP request's ``_meta``::
                             details=lambda args, tool: [{'type': 'payment_initiation',
                                                          'instructedAmount': {'currency': 'TRY', 'amount': args['amount']},
                                                          'creditorAccount': {'iban': args['iban']}}],
-                            on_challenge=lambda state, tool: reply(f"Type {state['challengeCode']} in the TouchQue app."))
+                            on_challenge=lambda state, tool: reply(f"Type {state['challengeCode']} in the Touchque app."))
 
     @with_touchque_approval(policy)
     def pay(iban: str, amount: str) -> str:
@@ -34,7 +34,7 @@ import inspect
 import json
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from .exceptions import TouchQueApprovalError, TouchQueTimeoutException
+from .exceptions import TouchqueApprovalError, TouchqueTimeoutException
 
 _current: contextvars.ContextVar = contextvars.ContextVar('touchque_approval', default=None)
 
@@ -80,7 +80,7 @@ def _pick(value, args: Dict[str, Any], tool: str):
 
 def require_agent_approval(policy: ApprovalPolicy, args: Dict[str, Any], tool: str = 'tool') -> Dict[str, Any]:
     """Asks the person's phone and waits: the approved state (with ``approvalToken``),
-    or TouchQueApprovalError (rejected, blocked, expired...) / TouchQueTimeoutException."""
+    or TouchqueApprovalError (rejected, blocked, expired...) / TouchqueTimeoutException."""
     asked = policy.agent.request_approval(
         _pick(policy.user, args, tool), _pick(policy.type, args, tool), policy.details(args, tool),
         reason=_pick(policy.reason, args, tool) if policy.reason is not None else None,
@@ -155,7 +155,7 @@ def approve_interruptions_with_touchque(result, policies: Dict[str, ApprovalPoli
         try:
             require_agent_approval(policy, _args_of(arguments), name)
             state.approve(item)
-        except (TouchQueApprovalError, TouchQueTimeoutException):
+        except (TouchqueApprovalError, TouchqueTimeoutException):
             state.reject(item)
     return state
 
@@ -181,7 +181,7 @@ def touchque_can_use_tool(policies: Dict[str, ApprovalPolicy], token_field: Opti
             return deny(f'{tool_name} is not allowed for this agent') if deny_others else allow(input_data)
         try:
             approval = await _to_thread(require_agent_approval, policy, input_data, tool_name)
-        except (TouchQueApprovalError, TouchQueTimeoutException) as err:
+        except (TouchqueApprovalError, TouchqueTimeoutException) as err:
             return deny(f"The person did not approve {tool_name} on their phone ({getattr(err, 'status', 'timeout')})")
         return allow({**input_data, token_field: approval.get('approvalToken')} if token_field else input_data)
 

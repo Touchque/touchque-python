@@ -1,6 +1,6 @@
 # touchque-authenticator
 
-The official Python server SDK for [TouchQue](https://touchque.com) — biometric push
+The official Python server SDK for [Touchque](https://touchque.com) — biometric push
 2FA, passkeys, and offline approval codes, added to any backend with one
 decorator per route. Adapters for Flask, Django and FastAPI included.
 
@@ -21,14 +21,14 @@ The importable package is `touchque` (`import touchque`).
 
 ## Setup
 
-Get an API key and secret from your [TouchQue Dashboard](https://dashboard.touchque.com):
+Get an API key and secret from your [Touchque Dashboard](https://dashboard.touchque.com):
 
 ```bash
 export TQ_API_KEY=tq_auth_your_key
 export TQ_API_SECRET=your_api_secret
 ```
 
-`TouchQue()` with no arguments reads these automatically.
+`Touchque()` with no arguments reads these automatically.
 
 ## Quick start (Flask)
 
@@ -55,12 +55,12 @@ def transfer(request):
 
 ```python
 # FastAPI
-from touchque.contrib.fastapi import RequireTouchQue, install_touchque_exception_handler
+from touchque.contrib.fastapi import RequireTouchque, install_touchque_exception_handler
 
 install_touchque_exception_handler(app)  # optional: flattens the response shape
 
 @app.post('/transfer')
-def transfer(approval = Depends(RequireTouchQue('SEND_MONEY'))):
+def transfer(approval = Depends(RequireTouchque('SEND_MONEY'))):
     ...
 ```
 
@@ -68,10 +68,25 @@ Until the user approves on their phone, the decorator answers
 **`202 {"touchque": step, "token": "..."}`** instead of running your view.
 Your frontend renders `step` in its own UI (a matching number, or a QR code
 the first time the user links the app) and sends the same request again with
-header `X-TouchQue-Token: <token>` — see
+header `X-Touchque-Token: <token>` — see
 [`@touchque/web`](https://www.npmjs.com/package/@touchque/web), which does
 this loop for you in the browser. Once approved, the retried request reaches
 your view exactly once.
+
+## Action types
+
+`"SEND_MONEY"` above is an action type: one kind of approval, with the title the phone shows and
+whether it is critical. Define each one once, in the dashboard (**Developers → Action types**)
+or from code:
+
+```python
+tq.action_types.define("SEND_MONEY", name="Send money", critical=True)
+```
+
+The guard refuses what is not ready. A name that is not defined is a setup error
+(`TouchqueConfigException`, "Unknown action …"): the guard answers 500 with `reason: 'misconfigured'`. A type
+turned off in the dashboard answers 403 with `reason: 'action_disabled'`, which stops that kind of
+approval at once, without a deploy.
 
 ## Relay routes (sign-in, enrollment, passkeys, offline)
 
@@ -124,9 +139,9 @@ send the `RelayResponse` it returns.
 ## The three primitives, if you're not using a framework adapter
 
 ```python
-from touchque import TouchQue
+from touchque import Touchque
 
-tq = TouchQue()  # from TQ_API_KEY / TQ_API_SECRET
+tq = Touchque()  # from TQ_API_KEY / TQ_API_SECRET
 
 step = tq.start('SEND_MONEY', user='jane@acme.com', details={'Amount': '250 EUR', 'To': 'DE89...'})
 # step['state']: 'waiting' (show step['number']) | 'enroll' (show step['enroll']['qrCodeDataUrl'])
@@ -146,7 +161,7 @@ and transaction, and can only be consumed once.
 
 Push approval and offline codes stop password reuse and push fatigue, but a
 real-time phishing proxy can still relay them. A passkey can't be phished —
-the browser signs your site's real origin, and TouchQue refuses any other
+the browser signs your site's real origin, and Touchque refuses any other
 (NIST SP 800-63B-4 §3.2.5). Register one via `tq.webauthn` on the server and
 `@touchque/web`'s `passkeys.register()` in the browser; optionally require it
 for critical actions in the Dashboard's Security Policy.
@@ -178,13 +193,13 @@ fails verification.
 
 ```python
 from touchque import WebhookEvents, WebhookReasons
-from touchque.exceptions import TouchQueWebhookSignatureException
+from touchque.exceptions import TouchqueWebhookSignatureException
 
 try:
     # raw_body is text: in Flask request.get_data(as_text=True), in Django request.body.decode('utf-8').
     event = tq.webhook.verify(raw_body=request.get_data(as_text=True), signature=request.headers['X-Signature'])
-except TouchQueWebhookSignatureException:
-    return '', 403  # not from TouchQue
+except TouchqueWebhookSignatureException:
+    return '', 403  # not from Touchque
 if event.get('event') == WebhookEvents.APPROVAL_REVOKED:
     end_sessions_built_on(event['requestId'])
 ```
@@ -198,15 +213,15 @@ Event webhooks carry `event` (`WebhookEvents`): `DEVICE_LINKED`, `DEVICE_UNLINKE
 
 ## Vishing Shield (someone on the phone guiding the user)
 
-The phone tells TouchQue, signed with its hardware key, whether a call was active (or just ended), the screen
+The phone tells Touchque, signed with its hardware key, whether a call was active (or just ended), the screen
 was shared or the phone remote-controlled when the user tapped Approve. Depending on the server's mode:
 
 - **Passkey instead.** A user with a passkey finishes in the browser: the request stays open and turns into
   `passkey_required` mid-flight. The step-up flow and the relay handle it; the blocking `login.verify` raises
-  `TouchQuePasskeyRequiredError` (`reason == 'step_up'`). No offline or recovery code can finish such a request.
+  `TouchquePasskeyRequiredError` (`reason == 'step_up'`). No offline or recovery code can finish such a request.
 - **Refused.** A critical action without a passkey is rejected (`reason: vishing_suspected`).
 - **Provisional.** Anything else is approved with `provisional` set on the approval dict from `complete`. Let the user
-  in, but treat the session as limited: TouchQue refuses the user's critical actions (`blocked` / `provisional`)
+  in, but treat the session as limited: Touchque refuses the user's critical actions (`blocked` / `provisional`)
   until the phone re-confirms after the call (`APPROVAL_RECONFIRMED`). `APPROVAL_REVOKED` (`reason` `COACHED` or
   `UNDO`) means end the session; an approval revoked before you consumed it can no longer be consumed
   (409 `revoked`).
@@ -216,7 +231,7 @@ sign-in and sends a beacon to it, so a real-time phishing proxy in front of your
 approval is refused (`reason: phishing_origin`) and the phone warns the user. Allow the canary host in your
 Content-Security-Policy (`img-src` and `connect-src`).
 
-## TouchQue Actions (your code in the approval pipeline)
+## Touchque Actions (your code in the approval pipeline)
 
 Alerts, step-ups and refusals by country, local time, role or amount, passkeys
 for admins — from a template or a few lines of JavaScript, replayed against your
@@ -242,14 +257,14 @@ Register each agent with its **public** key; the private key stays where the age
 with its own key and gets a 10-minute token bound to that key (DPoP). `pip install "touchque-authenticator[agent]"`.
 
 ```python
-from touchque import TouchQue, TouchQueAgent, generate_agent_key
+from touchque import Touchque, TouchqueAgent, generate_agent_key
 
 keys = generate_agent_key()                      # or where the agent runs
 agent = client.agents.create('Invoice bot', ['PAY_INVOICE'], public_key=keys['public_jwk'],
                              owner_email='ada@acme.com', platform='langchain')
 # store agent['id'] and keys['private_jwk'] in the agent's secrets (TQ_AGENT_ID, TQ_AGENT_KEY)
 
-me = TouchQueAgent().me()                        # in the agent
+me = TouchqueAgent().me()                        # in the agent
 ```
 
 `client.agents.suspend(agent_id)` stops one agent at once, `client.agents.set_kill_switch(True)` every agent.
@@ -258,7 +273,7 @@ me = TouchQueAgent().me()                        # in the agent
 ask = agent.request_approval('jane@example.com', 'PAY_INVOICE', [{
     'type': 'payment_initiation', 'instructedAmount': {'currency': 'TRY', 'amount': '500.00'},
     'creditorName': 'Jane Doe', 'creditorAccount': {'iban': 'TR330006100519786457841326'}}], reason='October rent')
-reply(f"Type {ask['challengeCode']} in the TouchQue app to approve.")
+reply(f"Type {ask['challengeCode']} in the Touchque app to approve.")
 token = agent.wait_for_approval(ask['approvalId'])['approvalToken']
 
 # in your executor, right before paying: used once, only for what you are about to do
@@ -276,7 +291,7 @@ from touchque import ApprovalPolicy, with_touchque_approval, current_approval, a
 
 policy = ApprovalPolicy(agent, user='jane@example.com', type='PAY_INVOICE',
     details=lambda a, tool: [{'type': 'payment_initiation', 'instructedAmount': {'currency': 'TRY', 'amount': a['amount']}, 'creditorAccount': {'iban': a['iban']}}],
-    on_challenge=lambda s, tool: reply(f"Type {s['challengeCode']} in the TouchQue app to approve."))
+    on_challenge=lambda s, tool: reply(f"Type {s['challengeCode']} in the Touchque app to approve."))
 
 @tool
 @with_touchque_approval(policy)
@@ -292,7 +307,7 @@ Agents also stop when their review date passes and when their owner leaves the o
 
 ### Cross App Access (ID-JAG) and A2A agent cards
 
-An organization's identity provider (TouchQue SSO) can let one of its apps reach another service for a member with no consent screen (Cross App Access, ID-JAG, an open IETF draft): the app trades the member's ID token for an ID-JAG, then the ID-JAG for an access token at the other service. If you run an authorization server, the verifier checks an ID-JAG (issuer, single audience, your client, expiry, `typ`) and uses it once. Before your agent trusts another agent's A2A card, check its signatures (A2A 1.0 §8.4: JWS over the RFC 8785 canonical card); keys named by `jku` are only fetched from the card's own host or hosts you trust.
+An organization's identity provider (Touchque SSO) can let one of its apps reach another service for a member with no consent screen (Cross App Access, ID-JAG, an open IETF draft): the app trades the member's ID token for an ID-JAG, then the ID-JAG for an access token at the other service. If you run an authorization server, the verifier checks an ID-JAG (issuer, single audience, your client, expiry, `typ`) and uses it once. Before your agent trusts another agent's A2A card, check its signatures (A2A 1.0 §8.4: JWS over the RFC 8785 canonical card); keys named by `jku` are only fetched from the card's own host or hosts you trust.
 
 ```python
 from touchque import request_id_jag, redeem_id_jag, IdJagVerifier, verify_agent_card
@@ -344,15 +359,15 @@ for jti, token in out['sets'].items():
 ## Silent sign-ins (stop asking when nothing is new)
 
 A user who approved on their phone in this browser a little while ago, from the same phone, network and country,
-with no risk signal since, does not need another push. TouchQue's risk engine decides; your server only skips the
+with no risk signal since, does not need another push. Touchque's risk engine decides; your server only skips the
 push when it says so.
 
-1. In the browser, `@touchque/web` 1.4.0 with `createTouchQueWeb({ browserKey: true })` keeps a non-extractable
-   key for your site and sends a fresh, signed proof of it in the `X-TouchQue-Browser` header.
+1. In the browser, `@touchque/web` 2.0.0 with `createTouchqueWeb({ browserKey: true })` keeps a non-extractable
+   key for your site and sends a fresh, signed proof of it in the `X-Touchque-Browser` header.
 2. On the server, turn on `silent_sign_in`:
 
 ```python
-# Flask (Django's require_touchque and FastAPI's RequireTouchQue take the same option)
+# Flask (Django's require_touchque and FastAPI's RequireTouchque take the same option)
 @app.post('/login/2fa')
 @require_touchque('LOGIN', user=lambda: session.get('password_ok'), silent_sign_in=True)
 def login_2fa():
@@ -377,7 +392,7 @@ check, starts the usual push with the proof attached, so its approval makes the 
 token never checks again. `run_guard(..., browser_proof=..., silent_sign_in=True)` does the same for your own
 framework (`silent_input_from_headers` reads the header).
 
-TouchQue only lets a sign-in through silently when all of this holds: the browser proved its key and was approved
+Touchque only lets a sign-in through silently when all of this holds: the browser proved its key and was approved
 on the phone (a confirmed push, not one approved during a call, or a passkey) within your `max_age_seconds` and at
 most 7 days ago, by the phone that is linked now; the country and the network were seen in the user's earlier
 approved sign-ins; the risk engine allows it with no risk signal; and the action is an everyday one. A critical
@@ -386,7 +401,7 @@ action always asks. In `shadow` mode (`silentMode`) it always asks and the reaso
 Without the adapters:
 
 ```python
-browser_proof = request.headers.get('X-TouchQue-Browser')
+browser_proof = request.headers.get('X-Touchque-Browser')
 risk = tq.risk.check(user, type='LOGIN', client_ip=request.remote_addr, browser_proof=browser_proof)
 if risk['prompt'] is False:
     return open_session(user)  # risk['reasons'] say why
@@ -397,7 +412,7 @@ tq.risk.forget_browsers(user)                  # all; or thumbprint=... for one
 ```
 
 Forget a user's browsers after a password reset or a "sign out everywhere". `risk.check` reads the answer
-fail-closed (`parse_risk_check`): `prompt` is `False` only when TouchQue answered the boolean `false`; malformed
+fail-closed (`parse_risk_check`): `prompt` is `False` only when Touchque answered the boolean `false`; malformed
 `reasons` become `[]` and a missing `assurance` is `'normal'`.
 
 ## Never Locked Out (lost, dead or new phone)
@@ -414,7 +429,7 @@ tq.recovery.set_vouchers(user, ['bo@acme.com', 'cy@acme.com'])
 
 # "I lost my phone", after the password:
 r = tq.recovery.start(user, client_ip=ip, display_name='Ada', fallback_vouchers=admins)
-show_qr(r['bindUri'])                      # the TouchQue app on the new phone scans it
+show_qr(r['bindUri'])                      # the Touchque app on the new phone scans it
 now = tq.recovery.status(r['recoveryId'])  # each voucher's 'code' to read to them
 # now['status']: AWAITING_DEVICE -> VOUCHING -> COOLING -> COMPLETED (or VETOED / EXPIRED / FAILED)
 
@@ -425,7 +440,7 @@ tq.recovery.veto(r['recoveryId'], by='admin@acme.com')  # an admin who does not 
 
 Every approval decision names a short case code (`K7P-2QX`: 6 characters, no I, O, 0 or 1). A user who was asked to
 match a number, needed a passkey or was refused reads it out to your support team, and the team opens the whole
-decision by it in the TouchQue dashboard (Logs → Look up a case): what went in, each check's verdict (the access rule
+decision by it in the Touchque dashboard (Logs → Look up a case): what went in, each check's verdict (the access rule
 that matched, the risk signals that were acted on and the ones only measured), and the single change that would have
 let it through. No screenshots, no log digging. The code opens nothing on its own: only your workspace sees its
 decisions.
@@ -435,13 +450,13 @@ step = client.start('WITHDRAW', user, ip=request.remote_addr)
 # step['caseCode'] -> 'K7P-2QX'; step['reasons'] -> [{'code': 'critical_action', 'text': 'The action is marked critical'}]
 try:
     client.login.request(user, type='LOGIN')
-except TouchQueAPIException as err:
+except TouchqueAPIException as err:
     if err.case_code:
         show(f'Tell your support team: {err.case_code}')
 ```
 
 `caseCode` is in the `login.request` and `risk.check` answers and every step (the guard keeps it while it waits);
-`TouchQueAPIException.case_code` carries it on refusals.
+`TouchqueAPIException.case_code` carries it on refusals.
 
 ## Blocking `verify()` and number matching
 
@@ -459,11 +474,11 @@ tq.login.verify(user, 'SEND_MONEY', on_challenge=show)
 ```
 
 It gets a dict with `requestId`, `expiresAt` and, when present, `challengeCode`, `reasons` and `caseCode`. It is
-not called when only a passkey can approve (`verify()` raises `TouchQuePasskeyRequiredError` first). An exception it
+not called when only a passkey can approve (`verify()` raises `TouchquePasskeyRequiredError` first). An exception it
 raises is logged (`touchque` logger, warning) and ignored: `verify()` keeps waiting. In a web request, where the
 page hears nothing until you answer, use the relay or `tq.start()`: their first answer already carries the number.
 
-## Verifying the device proof (no need to trust TouchQue)
+## Verifying the device proof (no need to trust Touchque)
 
 Every approval from a phone with a hardware key carries `approvalProof`: the phone's own
 signature over the request id, action, number-match code and the exact details it showed.
@@ -485,7 +500,7 @@ use — store `proof['publicKey']`, then pin it).
 ## Reporting fraud
 
 Learned later that an approved request was fraud? Report it — it is the strongest signal
-TouchQue's risk engine learns from, and it stays in your audit log:
+Touchque's risk engine learns from, and it stays in your audit log:
 
 ```python
 tq.login.report_fraud(request_id, reason='chargeback', note='Disputed by card holder')
@@ -494,7 +509,7 @@ tq.login.report_fraud(request_id, reason='chargeback', note='Disputed by card ho
 
 ## Pairing a browser by QR code
 
-Your page shows a QR code, the person scans it with the TouchQue app, and the phone that scanned is the one asked to approve, with number matching. Your page sends the thumbprint of its browser key (`@touchque/web` `browserKey.thumbprint()`); the nonce in the QR never leaves your server (TouchQue keeps its hash).
+Your page shows a QR code, the person scans it with the Touchque app, and the phone that scanned is the one asked to approve, with number matching. Your page sends the thumbprint of its browser key (`@touchque/web` `browserKey.thumbprint()`); the nonce in the QR never leaves your server (Touchque keeps its hash).
 
 ```python
 p = client.qr_pairings.create(key_thumbprint, client_ip=ip, user_agent=ua)
@@ -509,7 +524,7 @@ if now['state'] == 'confirmed':
 
 ## A code typed back on the phone
 
-When a sign-in needs a code another service sent the person (a text message, WhatsApp, e-mail), ask them to type it on the phone instead. The phone encrypts it to a one-time key you made for this request: TouchQue only ever holds the ciphertext. Such a request lives 5 minutes.
+When a sign-in needs a code another service sent the person (a text message, WhatsApp, e-mail), ask them to type it on the phone instead. The phone encrypts it to a one-time key you made for this request: Touchque only ever holds the ciphertext. Such a request lives 5 minutes.
 
 ```python
 key = new_code_reply_key()   # pip install "touchque-authenticator[proof]"; keep key['private_key']
@@ -520,7 +535,7 @@ code = open_code_reply(key['private_key'], sent['requestId'], status['reply']['c
 
 ## Safe Guard (Safe transactions approved on the phone)
 
-TouchQueSafeGuard is a transaction guard for a Safe: a transaction runs only with approvals signed by the P-256 keys on its approvers' phones. You send the raw transaction; the phone decodes it itself, shows its own rows and signs what it computed with a key only its biometrics unlock. Delegatecalls, changes to the Safe and proxy upgrades are governance: scheduled, time-locked and vetoable. A phone without that key yet gets `409 crypto_key_missing`.
+TouchqueSafeGuard is a transaction guard for a Safe: a transaction runs only with approvals signed by the P-256 keys on its approvers' phones. You send the raw transaction; the phone decodes it itself, shows its own rows and signs what it computed with a key only its biometrics unlock. Delegatecalls, changes to the Safe and proxy upgrades are governance: scheduled, time-locked and vetoable. A phone without that key yet gets `409 crypto_key_missing`.
 
 ```python
 from touchque import verify_safe_approval, with_safe_approvals, safe_schedule_call   # pip install "touchque-authenticator[proof]"
@@ -546,31 +561,31 @@ else:
     data = safe_schedule_call(SAFE, check['governanceHash'], [approval])   # a call to the guard; runs after govDelay
 ```
 
-`verify_safe_approval` makes the guard's check off chain, so a co-signer or your own server never has to trust TouchQue: it computes the Safe transaction hash (EIP-712) and the governance hash from the raw fields, rebuilds the 149-byte message the phone signed and checks the P-256 signature. Without `purpose` it accepts only an approval to execute this exact transaction (`approve`); an approval that schedules a governance change covers neither the Safe nonce nor the gas fields, so it passes only when you name `purpose='schedule'`. It refuses a high `s`, an approval that expired or is valid for more than a day, another approver index, and, when you pass `rows` or `display_digest` from your own decoding, rows the phone did not show. `reason` is `approval_malformed`, `public_key_invalid`, `approver_index_mismatch`, `approval_expired`, `rows_differ`, `high_s` or `signature_invalid`. `safe_tx_hash`, `safe_governance_hash`, `safe_approval_message` and `safe_display_digest` are exported too.
+`verify_safe_approval` makes the guard's check off chain, so a co-signer or your own server never has to trust Touchque: it computes the Safe transaction hash (EIP-712) and the governance hash from the raw fields, rebuilds the 149-byte message the phone signed and checks the P-256 signature. Without `purpose` it accepts only an approval to execute this exact transaction (`approve`); an approval that schedules a governance change covers neither the Safe nonce nor the gas fields, so it passes only when you name `purpose='schedule'`. It refuses a high `s`, an approval that expired or is valid for more than a day, another approver index, and, when you pass `rows` or `display_digest` from your own decoding, rows the phone did not show. `reason` is `approval_malformed`, `public_key_invalid`, `approver_index_mismatch`, `approval_expired`, `rows_differ`, `high_s` or `signature_invalid`. `safe_tx_hash`, `safe_governance_hash`, `safe_approval_message` and `safe_display_digest` are exported too.
 
 ## Errors
 
-All SDK errors extend `TouchQueException`: `TouchQueAPIException`,
-`TouchQueNetworkException`, `TouchQueRejectedException`,
-`TouchQueTimeoutException`, `TouchQueWebhookSignatureException`,
-`TouchQueConfigException`.
+All SDK errors extend `TouchqueException`: `TouchqueAPIException`,
+`TouchqueNetworkException`, `TouchqueRejectedException`,
+`TouchqueTimeoutException`, `TouchqueWebhookSignatureException`,
+`TouchqueConfigException`.
 
-A feature your organization cannot use here raises a `TouchQueFeatureException` (still a `TouchQueAPIException`, status 403) with `feature` (`device_risk`, `ai_agents`…) and `feature_reason`: `TouchQueFeatureNotInPlanException`, `TouchQueFeatureReadOnlyException` or `TouchQueFeatureOffException` — not in its plan (an owner or admin adds it in the TouchQue dashboard), being turned off (reads work for 14 days, changes are refused) or switched off on this TouchQue deployment.
+A feature your organization cannot use here raises a `TouchqueFeatureException` (still a `TouchqueAPIException`, status 403) with `feature` (`device_risk`, `ai_agents`…) and `feature_reason`: `TouchqueFeatureNotInPlanException`, `TouchqueFeatureReadOnlyException` or `TouchqueFeatureOffException` — not in its plan (an owner or admin adds it in the Touchque dashboard), being turned off (reads work for 14 days, changes are refused) or switched off on this Touchque deployment.
 
 ## Security
 
 - Every API request is signed HMAC-SHA256 (method, path+query, timestamp, nonce, body hash).
-- The `X-TouchQue-Token` a frontend echoes back is itself signed and bound to
+- The `X-Touchque-Token` a frontend echoes back is itself signed and bound to
   one user + action + transaction digest.
 - An approval is consumed exactly once, server-side.
 - Your API secret never leaves your server.
 
-See [SECURITY.md](./SECURITY.md) to report a vulnerability.
+See [SECURITY.md](https://github.com/Touchque/touchque-python/blob/main/SECURITY.md) to report a vulnerability.
 
 ## Requirements
 
 - Python 3.7+
-- A [TouchQue Dashboard](https://dashboard.touchque.com) account
+- A [Touchque Dashboard](https://dashboard.touchque.com) account
 
 ## Logging
 
@@ -578,8 +593,8 @@ The SDK's own problems (a misconfigured guard, a failed `on_challenge`, a relay 
 
 ## License
 
-MIT © [TouchQue](https://touchque.com)
+MIT © [Touchque](https://touchque.com)
 
-## TouchQue Login (hosted sign-in)
+## Touchque Login (hosted sign-in)
 
 Sign-up and sign-in pages for your own customers, on your brand, with OpenID Connect. See [support.touchque.com/touchque-login](https://support.touchque.com/touchque-login) for this SDK's client and a quickstart.

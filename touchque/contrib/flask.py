@@ -11,7 +11,7 @@ Flask: one line per protected route.
 Until the user approves on their phone this answers
 202 {"touchque": step, "token": ...}. Your page shows the step in its own
 design and sends the same request again with header
-``X-TouchQue-Token: <token>``. Once approved the view runs ONCE, with
+``X-Touchque-Token: <token>``. Once approved the view runs ONCE, with
 ``flask.g.touchque`` set to the approval.
 
 Relay routes (POST /login, enrollment, offline codes, passkey ceremonies)
@@ -34,7 +34,7 @@ from typing import Any, Callable, Dict, Optional
 
 from flask import Blueprint, abort, current_app, g, json, jsonify, request
 
-from ..client import TouchQue, get_default_client
+from ..client import Touchque, get_default_client
 from ..guard import SilentSignIn, guard_input_from_headers, run_guard, silent_input_from_headers
 from ..relay import RELAY_ROUTES, RelayHandler
 from ..steps import LoginDetails
@@ -51,7 +51,7 @@ def _default_user() -> Optional[str]:
 
 def require_touchque(
     action: str,
-    client: Optional[TouchQue] = None,
+    client: Optional[Touchque] = None,
     user: Optional[Callable[[], Optional[str]]] = None,
     details: Optional[Callable[[], Optional[LoginDetails]]] = None,
     reference_id: Optional[Callable[[], Optional[str]]] = None,
@@ -65,8 +65,8 @@ def require_touchque(
     ``user=lambda: session.get('password_ok')``.
 
     ``silent_sign_in`` (default off): when on, a new attempt whose browser
-    sent its device-bound key proof (``X-TouchQue-Browser``, added by
-    ``@touchque/web`` with ``browserKey: true``) first asks TouchQue whether
+    sent its device-bound key proof (``X-Touchque-Browser``, added by
+    ``@touchque/web`` with ``browserKey: true``) first asks Touchque whether
     anything about it is new. If nothing is, your view runs at once with no
     push (``g.touchque['assurance']['method'] == 'silent'``,
     ``g.touchque['reasons']``). Otherwise, and on any error, the usual push
@@ -74,7 +74,7 @@ def require_touchque(
     ``{'max_age_seconds': n}`` sets your own limit on how long ago the last
     phone approval in that browser may be.
 
-    ``context``: for your TouchQue Actions only (``event.context``), e.g.
+    ``context``: for your Touchque Actions only (``event.context``), e.g.
     ``context=lambda: {'roles': g.user.roles}``. Never shown on the phone.
     """
     user_of = user or _default_user
@@ -109,7 +109,7 @@ def require_touchque(
 
 
 def touchque_relay_blueprint(
-    client: Optional[TouchQue] = None,
+    client: Optional[Touchque] = None,
     name: str = 'touchque_relay',
     url_prefix: Optional[str] = None,
     handler: Optional[RelayHandler] = None,

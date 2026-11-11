@@ -8,7 +8,7 @@ import pytest
 
 from touchque.config import Config
 from touchque.resources.webhook import Webhook
-from touchque.exceptions import TouchQueWebhookSignatureException
+from touchque.exceptions import TouchqueWebhookSignatureException
 
 SECRET = "whsec_test"
 
@@ -67,37 +67,37 @@ def test_rejects_a_tampered_body():
     raw_body = server_webhook(payload)
     tampered = raw_body.replace("req_1", "req_evil")
 
-    with pytest.raises(TouchQueWebhookSignatureException):
+    with pytest.raises(TouchqueWebhookSignatureException):
         make_webhook().verify(tampered)
 
 
 def test_rejects_a_wrong_secret():
     raw_body = server_webhook(fresh_payload(), secret="not_the_secret")
 
-    with pytest.raises(TouchQueWebhookSignatureException):
+    with pytest.raises(TouchqueWebhookSignatureException):
         make_webhook().verify(raw_body)
 
 
 def test_rejects_a_missing_signature():
-    with pytest.raises(TouchQueWebhookSignatureException):
+    with pytest.raises(TouchqueWebhookSignatureException):
         make_webhook().verify(json.dumps(fresh_payload()))
 
 
 def test_rejects_a_non_ascii_signature_as_a_bad_signature():
     payload = fresh_payload()
-    with pytest.raises(TouchQueWebhookSignatureException):
+    with pytest.raises(TouchqueWebhookSignatureException):
         make_webhook().verify(json.dumps(payload), "é")
-    with pytest.raises(TouchQueWebhookSignatureException):
+    with pytest.raises(TouchqueWebhookSignatureException):
         make_webhook().verify(json.dumps({**payload, "signature": "é" * 64}))
 
 
 def test_rejects_malformed_json():
-    with pytest.raises(TouchQueWebhookSignatureException):
+    with pytest.raises(TouchqueWebhookSignatureException):
         make_webhook().verify("not json")
 
 
 def test_rejects_a_non_object_body():
-    with pytest.raises(TouchQueWebhookSignatureException):
+    with pytest.raises(TouchqueWebhookSignatureException):
         make_webhook().verify("[1,2,3]")
 
 
@@ -105,7 +105,7 @@ def test_rejects_a_stale_timestamp_as_replay():
     old = datetime.fromtimestamp(time.time() - 3600, timezone.utc).isoformat()
     raw_body = server_webhook(fresh_payload(timestamp=old))
 
-    with pytest.raises(TouchQueWebhookSignatureException):
+    with pytest.raises(TouchqueWebhookSignatureException):
         make_webhook().verify(raw_body)
 
 
@@ -121,7 +121,7 @@ def test_replay_check_can_be_disabled():
 def test_the_error_never_leaks_the_expected_signature():
     raw_body = server_webhook(fresh_payload(), secret="wrong")
 
-    with pytest.raises(TouchQueWebhookSignatureException) as exc:
+    with pytest.raises(TouchqueWebhookSignatureException) as exc:
         make_webhook().verify(raw_body)
 
     assert "Expected" not in str(exc.value)
@@ -172,25 +172,25 @@ def test_a_missing_or_invalid_timestamp_fails_closed():
     no_ts = fresh_payload()
     del no_ts["timestamp"]
     for body in (server_webhook(no_ts), server_webhook(fresh_payload(timestamp="not-a-date"))):
-        with pytest.raises(TouchQueWebhookSignatureException):
+        with pytest.raises(TouchqueWebhookSignatureException):
             make_webhook().verify(body)
 
 
 def test_replay_cache_rejects_the_second_delivery_of_the_same_jti():
-    from touchque import MemoryReplayCache, TouchQueWebhookReplayException
+    from touchque import MemoryReplayCache, TouchqueWebhookReplayException
 
     cache = MemoryReplayCache()
     wh = make_webhook()
     body = server_webhook(fresh_payload(jti="once"))
     assert wh.verify(body, replay_cache=cache)["jti"] == "once"
-    with pytest.raises(TouchQueWebhookReplayException) as exc:
+    with pytest.raises(TouchqueWebhookReplayException) as exc:
         wh.verify(body, replay_cache=cache)
     assert exc.value.jti == "once"
-    assert isinstance(exc.value, TouchQueWebhookSignatureException)
+    assert isinstance(exc.value, TouchqueWebhookSignatureException)
     wh.verify(server_webhook(fresh_payload(jti="other")), replay_cache=cache)
     no_jti = fresh_payload()
     del no_jti["jti"]
-    with pytest.raises(TouchQueWebhookSignatureException):
+    with pytest.raises(TouchqueWebhookSignatureException):
         wh.verify(server_webhook(no_jti), replay_cache=cache)
 
 
@@ -198,7 +198,7 @@ def test_a_forged_webhook_does_not_poison_the_replay_cache():
     from touchque import MemoryReplayCache
 
     cache = MemoryReplayCache()
-    with pytest.raises(TouchQueWebhookSignatureException):
+    with pytest.raises(TouchqueWebhookSignatureException):
         make_webhook().verify(server_webhook(fresh_payload(jti="victim"), secret="wrong"), replay_cache=cache)
     make_webhook().verify(server_webhook(fresh_payload(jti="victim")), replay_cache=cache)
 

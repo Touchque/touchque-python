@@ -35,10 +35,10 @@ class Auth:
         once the mobile app scans the setup secret.
 
         Returns ``{ externalUsername, deviceId, used, frozen, createdAt, expireAt, device }``.
-        Raises ``TouchQueAPIException`` (404) if the user is unknown.
+        Raises ``TouchqueAPIException`` (404) if the user is unknown.
 
         ``device`` is the linked phone's posture for device trust, or ``None`` before a
-        phone is linked. It is self-reported by the TouchQue app::
+        phone is linked. It is self-reported by the Touchque app::
 
             {
               "platform": "ios" | "android" | None,

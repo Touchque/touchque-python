@@ -1,14 +1,14 @@
-"""Never Locked Out against the shared fake TouchQue API: vouchers, start,
+"""Never Locked Out against the shared fake Touchque API: vouchers, start,
 status, list and veto. Same scenarios as the Node SDK's Recovery tests."""
 import pytest
 
-from touchque import Config, TouchQue, TouchQueAPIException, is_recovery_open
-from touchque.exceptions import TouchQueConfigException
+from touchque import Config, Touchque, TouchqueAPIException, is_recovery_open
+from touchque.exceptions import TouchqueConfigException
 from .fake_api import fake_api  # noqa: F401 (fixture)
 
 
-def client_for(api) -> TouchQue:
-    return TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=api.base_url))
+def client_for(api) -> Touchque:
+    return Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url=api.base_url))
 
 
 @pytest.fixture
@@ -46,14 +46,14 @@ def test_a_recovery_starts_with_a_qr_for_the_new_phone_and_moves_on(api):
 
 def test_an_admin_vetoes_a_running_recovery_and_too_few_vouchers_is_a_clear_error(api):
     tq = client_for(api)
-    with pytest.raises(TouchQueAPIException) as e:
+    with pytest.raises(TouchqueAPIException) as e:
         tq.recovery.start('ada@acme.com')
     assert e.value.status == 409
     r = tq.recovery.start('ada@acme.com', fallback_vouchers=['bo@acme.com', 'cy@acme.com'])
     assert [x['recoveryId'] for x in tq.recovery.list(open=True)] == [r['recoveryId']]
     vetoed = tq.recovery.veto(r['recoveryId'], by='admin@acme.com')
     assert (vetoed['status'], vetoed['endedBy']) == ('VETOED', 'admin@acme.com')
-    with pytest.raises(TouchQueAPIException):
+    with pytest.raises(TouchqueAPIException):
         tq.recovery.veto(r['recoveryId'])
     assert tq.recovery.list(open=True) == []
 
@@ -62,6 +62,6 @@ def test_missing_arguments_fail_before_any_request(api):
     tq = client_for(api)
     for call in (lambda: tq.recovery.start(''), lambda: tq.recovery.status(''), lambda: tq.recovery.list(),
                  lambda: tq.recovery.set_vouchers('ada@acme.com', 'bo@acme.com')):
-        with pytest.raises(TouchQueConfigException):
+        with pytest.raises(TouchqueConfigException):
             call()
     assert api.calls() == []

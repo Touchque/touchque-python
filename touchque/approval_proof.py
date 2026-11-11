@@ -5,7 +5,7 @@ every approval is signed by it over the request id, the action type, the
 number-match code and a digest of the transaction details the user was shown.
 The proof arrives in the SUCCESS webhook (``approvalProof``) and in
 ``login.status(id)['approvalProof']``. Verifying it does not require trusting
-TouchQue: it proves the enrolled phone signed exactly these details.
+Touchque: it proves the enrolled phone signed exactly these details.
 
 Needs the optional ``cryptography`` package:
 ``pip install "touchque-authenticator[proof]"``.

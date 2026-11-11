@@ -26,10 +26,10 @@ Routes (relative to wherever you mount the relay):
 ``get_user_id(request)`` returns nothing.
 
 Pre-auth routes are rate limited per IP and per username by default
-(``rate_limit``), and TouchQue itself caps approval pushes per user. Set
+(``rate_limit``), and Touchque itself caps approval pushes per user. Set
 ``get_login_user`` so POST /login and the offline routes only work for a user
 who already passed YOUR first factor (password step): then nobody can make
-TouchQue push to, or lock out, an arbitrary user through your server. The
+Touchque push to, or lock out, an arbitrary user through your server. The
 offline routes are OFF until you do (or explicitly opt out with
 ``allow_offline_without_first_factor=True``): with the username taken from
 the body, anyone could burn a user's offline attempts and lock them out.
@@ -40,7 +40,7 @@ import re
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple, Union
 
 from .exceptions import (
-    TouchQueAPIException, TouchQuePasskeyRequiredError, TouchQueRejectedException, TouchQueTimeoutException,
+    TouchqueAPIException, TouchquePasskeyRequiredError, TouchqueRejectedException, TouchqueTimeoutException,
 )
 from .guard import SilentSignIn, guard_input_from_headers, is_status_poll, run_guard, silent_input_from_headers
 from .rate_limiter import FixedWindowLimiter
@@ -51,7 +51,7 @@ POLLS_PER_ATTEMPT = 10
 PASSKEY_ENROLL_ACTION = 'PASSKEY_ENROLL'
 
 if TYPE_CHECKING:
-    from .client import TouchQue
+    from .client import Touchque
 
 logger = logging.getLogger('touchque')
 
@@ -121,12 +121,12 @@ def _compact(d: Dict[str, Any]) -> Dict[str, Any]:
 
 def _auth_result_error(error: BaseException) -> RelayResponse:
     """Same status-code mapping as the step-up guard adapters - kept in sync."""
-    if isinstance(error, TouchQueRejectedException):
+    if isinstance(error, TouchqueRejectedException):
         return _json({'error': '2FA_REJECTED', 'message': 'User rejected the 2FA request on their device.'}, 403)
-    if isinstance(error, TouchQuePasskeyRequiredError):
+    if isinstance(error, TouchquePasskeyRequiredError):
         return _json({'error': 'PASSKEY_REQUIRED', 'requestId': error.request_id,
                       'message': 'Approve this sign-in with your passkey.'}, 409)
-    if isinstance(error, TouchQueTimeoutException):
+    if isinstance(error, TouchqueTimeoutException):
         return _json({'error': '2FA_TIMEOUT', 'message': 'User did not respond to the 2FA request in time.'}, 408)
     # A real API error (e.g. 404 "no linked device for this user") still carries a useful
     # client-range status + message - surface it. Only a network failure or an unexpected
@@ -136,16 +136,16 @@ def _auth_result_error(error: BaseException) -> RelayResponse:
         data = getattr(error, 'data', None)
         data = data if isinstance(data, dict) else {}
         return _json({'error': data.get('error') or data.get('message') or str(error) or 'request_failed'}, status)
-    logger.error('[TouchQue Relay Error] %s: %s', type(error).__name__, error)
+    logger.error('[Touchque Relay Error] %s: %s', type(error).__name__, error)
     return _json({'error': '2FA_UNAVAILABLE', 'message': 'The 2FA verification service is temporarily unavailable.'},
                  503)
 
 
 def _relay_error(error: BaseException) -> RelayResponse:
-    """For plain relay routes: a client-range TouchQue status is forwarded with its
-    machine-readable code only - never TouchQue's internal message text - anything
+    """For plain relay routes: a client-range Touchque status is forwarded with its
+    machine-readable code only - never Touchque's internal message text - anything
     else becomes 502."""
-    if isinstance(error, TouchQueAPIException) and error.status is not None and error.status < 500:
+    if isinstance(error, TouchqueAPIException) and error.status is not None and error.status < 500:
         data = error.data if isinstance(error.data, dict) else {}
         return _json({'error': error.code or data.get('error') or 'request_failed'}, error.status)
     return _json({'error': 'relay_error'}, 502)
@@ -155,7 +155,7 @@ class RelayHandler:
     """
     The relay routes, independent of any web framework.
 
-    ``client``: a ``TouchQue`` instance (default: ``get_default_client()``).
+    ``client``: a ``Touchque`` instance (default: ``get_default_client()``).
 
     ``get_user_id(request)``: REQUIRED. The signed-in user's identifier for
     the "auth required" routes (enrollment, passkey registration and
@@ -186,8 +186,8 @@ class RelayHandler:
 
     ``silent_sign_in``: silent sign-ins for POST /login (default off). When
     on, a new sign-in whose browser sent its device-bound key proof
-    (``X-TouchQue-Browser``, added by ``@touchque/web`` with
-    ``browserKey: true``) first asks TouchQue whether anything about it is
+    (``X-Touchque-Browser``, added by ``@touchque/web`` with
+    ``browserKey: true``) first asks Touchque whether anything about it is
     new. If nothing is, it succeeds at once with no push (``on_authenticated``
     gets ``via: 'silent'``; the answer's ``assurance['method']`` is
     ``'silent'``). Otherwise, and on any error, the usual push starts and its
@@ -208,7 +208,7 @@ class RelayHandler:
 
     def __init__(
         self,
-        client: Optional['TouchQue'] = None,
+        client: Optional['Touchque'] = None,
         get_user_id: Optional[Callable[[Any], Optional[str]]] = None,
         get_login_user: Optional[Callable[[Any], Optional[str]]] = None,
         rate_limit: Union[Dict[str, int], bool, None] = None,
@@ -239,14 +239,14 @@ class RelayHandler:
         if not get_login_user and not _warned_pre_auth:
             _warned_pre_auth = True
             logger.warning(
-                '[TouchQue] RelayHandler: POST /login takes the username from the request body%s. Set '
+                '[Touchque] RelayHandler: POST /login takes the username from the request body%s. Set '
                 '`get_login_user` to bind them to your first factor (password step) so they cannot be used '
                 'against arbitrary users.',
                 ', and so do the offline routes' if self.offline_enabled
                 else '; the offline routes are disabled until you set it')
 
     @property
-    def client(self) -> 'TouchQue':
+    def client(self) -> 'Touchque':
         if self._client is None:
             from .client import get_default_client
             self._client = get_default_client()
@@ -312,7 +312,7 @@ class _Ctx:
             if self.run_async is None:
                 if inspect.iscoroutine(result):
                     result.close()
-                raise TypeError('TouchQue relay: an async callback needs an async adapter (touchque.contrib.fastapi)')
+                raise TypeError('Touchque relay: an async callback needs an async adapter (touchque.contrib.fastapi)')
             result = self.run_async(result)
         return result
 
@@ -330,7 +330,7 @@ class _Ctx:
             raise _Done(_json({
                 'error': 'OFFLINE_REQUIRES_FIRST_FACTOR',
                 'message': 'Offline sign-in is disabled: configure get_login_user (or '
-                           'allow_offline_without_first_factor) on the TouchQue relay.',
+                           'allow_offline_without_first_factor) on the Touchque relay.',
             }, 403))
 
     def allow(self, route: str, user: Optional[str] = None, ip_factor: int = 1) -> None:
@@ -445,7 +445,7 @@ class _Ctx:
         else:
             self.allow('login', external_username)
         # Same two-phase contract as the step-up guard: 202 with the step (matching number /
-        # first-time QR / offline QR) until approved; the page re-sends with X-TouchQue-Token.
+        # first-time QR / offline QR) until approved; the page re-sends with X-Touchque-Token.
         result = run_guard(
             self.h.client, external_username, self.h.action_type,
             details=details, ip=self.ip, user_agent=self.user_agent,
@@ -475,7 +475,7 @@ class _Ctx:
             return _auth_result_error(error)
 
     # ── offline sign: QR challenge / typed code ─────────────────────────
-    # The username used for on_authenticated is the one TouchQue returns for the
+    # The username used for on_authenticated is the one Touchque returns for the
     # challenge/code, never the one in the request body.
     def offline_challenge(self) -> RelayResponse:
         self.offline_allowed()
@@ -570,7 +570,7 @@ class _Ctx:
             r = self.h.client.webauthn.authenticate_verify(_field(self.body, 'requestId'),
                                                            _field(self.body, 'response'))
             approved_user = r.get('externalUsername')
-            # Open the session only for the user TouchQue says was approved. A name sent by the
+            # Open the session only for the user Touchque says was approved. A name sent by the
             # browser is never trusted: anyone could approve their own request and claim to be
             # someone else.
             if r.get('success') and self.h.get_login_user and isinstance(approved_user, str):
@@ -596,7 +596,7 @@ class _Ctx:
             if not headers_in.get('token'):
                 try:
                     return _json(self.h.client.webauthn.register_options(user_id, discoverable=True))
-                except TouchQueAPIException as error:
+                except TouchqueAPIException as error:
                     if not (error.status == 403 and error.code == 'enrollment_approval_required'):
                         raise
             if is_status_poll(self.h.client, user_id, PASSKEY_ENROLL_ACTION, **headers_in):

@@ -3,7 +3,7 @@ import pytest
 
 flask = pytest.importorskip('flask')
 
-from touchque import TouchQueAPIException  # noqa: E402
+from touchque import TouchqueAPIException  # noqa: E402
 from touchque.contrib.flask import touchque_relay_blueprint  # noqa: E402
 from .fake_api import fake_api  # noqa: F401,E402
 from .relay_helpers import fake_tq, real_tq  # noqa: E402
@@ -50,7 +50,7 @@ def test_login_flow_on_authenticated_sets_cookie_and_session(fake_api):
     assert first.status_code == 202
     assert first.headers['Cache-Control'] == 'no-store'
     fake_api.approve()
-    done = client.post('/touchque/login', json={}, headers={'X-TouchQue-Token': first.get_json()['token']})
+    done = client.post('/touchque/login', json={}, headers={'X-Touchque-Token': first.get_json()['token']})
     assert done.status_code == 200
     assert done.get_json()['status'] == 'success'
     assert 'tq_session=opened' in done.headers.get('Set-Cookie', '')
@@ -89,10 +89,10 @@ def test_passkey_login_verify_mismatch_and_error_mapping():
     res = client.post('/touchque/passkey/login/verify', json={'requestId': 'r', 'response': {}})
     assert res.status_code == 401 and res.get_json() == {'error': 'verification_failed'}
 
-    tq.webauthn.list_credentials.side_effect = TouchQueAPIException('secret text', status=403, code='forbidden')
+    tq.webauthn.list_credentials.side_effect = TouchqueAPIException('secret text', status=403, code='forbidden')
     res = client.get('/touchque/passkey/credentials', headers={'X-User': 'u@example.com'})
     assert res.status_code == 403 and res.get_json() == {'error': 'forbidden'}
-    tq.webauthn.list_credentials.side_effect = TouchQueAPIException('boom', status=503)
+    tq.webauthn.list_credentials.side_effect = TouchqueAPIException('boom', status=503)
     res = client.get('/touchque/passkey/credentials', headers={'X-User': 'u@example.com'})
     assert res.status_code == 502 and res.get_json() == {'error': 'relay_error'}
 
@@ -105,7 +105,7 @@ def test_login_silent_sign_in_reads_the_browser_header(fake_api):
     app = make_app(real_tq(fake_api), rate_limit=False, silent_sign_in=True,
                    get_login_user=lambda req: 'alice@example.com',
                    on_authenticated=lambda req, resp, info: seen.append(info))
-    res = app.test_client().post('/touchque/login', json={}, headers={'X-TouchQue-Browser': PROOF})
+    res = app.test_client().post('/touchque/login', json={}, headers={'X-Touchque-Browser': PROOF})
     assert res.status_code == 200
     assert res.get_json() == {'status': 'success', 'requestId': 'silent',
                               'assurance': {'phishingResistant': False, 'method': 'silent'}}

@@ -1,9 +1,9 @@
-"""The agent side: an AI agent calls TouchQue with its OWN key, never with your
-API key. ``TouchQueAgent`` signs a private_key_jwt assertion (RFC 7523) for a
+"""The agent side: an AI agent calls Touchque with its OWN key, never with your
+API key. ``TouchqueAgent`` signs a private_key_jwt assertion (RFC 7523) for a
 10-minute token bound to its key with DPoP (RFC 9449), and proves the key on
 every call, so a stolen token is useless on its own.
 
-    agent = TouchQueAgent()            # TQ_AGENT_ID, TQ_AGENT_KEY (a JWK as JSON, or PEM)
+    agent = TouchqueAgent()            # TQ_AGENT_ID, TQ_AGENT_KEY (a JWK as JSON, or PEM)
     me = agent.me()
 
 Needs the optional ``cryptography`` package: ``pip install "touchque-authenticator[agent]"``.
@@ -22,11 +22,11 @@ from urllib.parse import urlparse
 import requests
 
 from .exceptions import (
-    TouchQueAPIException, TouchQueApprovalError, TouchQueConfigException, TouchQueNetworkException, TouchQueTimeoutException,
+    TouchqueAPIException, TouchqueApprovalError, TouchqueConfigException, TouchqueNetworkException, TouchqueTimeoutException,
     api_exception,
 )
 
-__all__ = ['TouchQueAgent', 'generate_agent_key', 'jwk_thumbprint', 'AGENT_ASSERTION_TYPE']
+__all__ = ['TouchqueAgent', 'generate_agent_key', 'jwk_thumbprint', 'AGENT_ASSERTION_TYPE']
 
 AGENT_ASSERTION_TYPE = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
 _AGENT_ID = re.compile(r'^agt_[a-z2-9]{20}$')
@@ -61,7 +61,7 @@ def _crypto():
         from cryptography.hazmat.primitives.asymmetric import ec, ed25519
         from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
-        raise ImportError('TouchQueAgent needs the cryptography package: pip install "touchque-authenticator[agent]"') from exc
+        raise ImportError('TouchqueAgent needs the cryptography package: pip install "touchque-authenticator[agent]"') from exc
     return hashes, serialization, ec, ed25519, decode_dss_signature
 
 
@@ -86,7 +86,7 @@ def generate_agent_key(alg: str = 'ES256') -> Dict[str, Dict[str, Any]]:
         key = ec.generate_private_key(ec.SECP256R1())
         d = key.private_numbers().private_value.to_bytes(32, 'big')
     else:
-        raise TouchQueConfigException('alg must be ES256 or EdDSA')
+        raise TouchqueConfigException('alg must be ES256 or EdDSA')
     public = _public_jwk(key)
     kid = jwk_thumbprint(public)
     return {
@@ -113,29 +113,29 @@ def _load_private_key(value: Union[Dict[str, Any], str, Any]):
         if isinstance(value, (ec.EllipticCurvePrivateKey, ed25519.Ed25519PrivateKey)):
             return value
     except Exception as exc:
-        raise TouchQueConfigException("private_key must be the agent's private key: a JWK (dict or JSON), a PEM string or a cryptography key") from exc
-    raise TouchQueConfigException("private_key must be the agent's private key: a JWK (dict or JSON), a PEM string or a cryptography key")
+        raise TouchqueConfigException("private_key must be the agent's private key: a JWK (dict or JSON), a PEM string or a cryptography key") from exc
+    raise TouchqueConfigException("private_key must be the agent's private key: a JWK (dict or JSON), a PEM string or a cryptography key")
 
 
-class TouchQueAgent:
-    """An AI agent's own TouchQue client (see the module docstring)."""
+class TouchqueAgent:
+    """An AI agent's own Touchque client (see the module docstring)."""
 
     def __init__(self, agent_id: Optional[str] = None, private_key: Union[Dict[str, Any], str, Any, None] = None,
                  kid: Optional[str] = None, base_url: Optional[str] = None, scope: Optional[str] = None,
                  timeout: int = 10000):
         agent_id = agent_id if agent_id is not None else os.environ.get('TQ_AGENT_ID', '')
         if not _AGENT_ID.match(agent_id or ''):
-            raise TouchQueConfigException('Set TQ_AGENT_ID (or pass agent_id): the agt_... id from client.agents.create()')
+            raise TouchqueConfigException('Set TQ_AGENT_ID (or pass agent_id): the agt_... id from client.agents.create()')
         key_input = private_key if private_key is not None else os.environ.get('TQ_AGENT_KEY')
         if not key_input:
-            raise TouchQueConfigException("Set TQ_AGENT_KEY (or pass private_key): the agent's private key")
+            raise TouchqueConfigException("Set TQ_AGENT_KEY (or pass private_key): the agent's private key")
         hashes, serialization, ec, ed25519, _ = _crypto()
         self.agent_id = agent_id
         self._key = _load_private_key(key_input)
         if isinstance(self._key, ec.EllipticCurvePrivateKey) and not isinstance(self._key.curve, ec.SECP256R1):
-            raise TouchQueConfigException('An EC agent key must be on P-256')
+            raise TouchqueConfigException('An EC agent key must be on P-256')
         if not isinstance(self._key, (ec.EllipticCurvePrivateKey, ed25519.Ed25519PrivateKey)):
-            raise TouchQueConfigException('The agent key must be EC P-256 or Ed25519')
+            raise TouchqueConfigException('The agent key must be EC P-256 or Ed25519')
         self._alg = 'EdDSA' if isinstance(self._key, ed25519.Ed25519PrivateKey) else 'ES256'
         self._public_jwk = _public_jwk(self._key)
         given_kid = None
@@ -147,7 +147,7 @@ class TouchQueAgent:
         self.base_url = (base_url or os.environ.get('TQ_API_URL') or 'https://api.touchque.com').rstrip('/')
         parsed = urlparse(self.base_url)
         if parsed.scheme != 'https' and not (parsed.scheme == 'http' and (parsed.hostname or '') in _LOCAL_HOSTS):
-            raise TouchQueConfigException(f'Refusing a plaintext base_url for "{parsed.hostname}": use https://')
+            raise TouchqueConfigException(f'Refusing a plaintext base_url for "{parsed.hostname}": use https://')
         self._scope = scope
         self._timeout = timeout / 1000.0
         self._token: Optional[Dict[str, Any]] = None
@@ -172,7 +172,7 @@ class TouchQueAgent:
         return self._sign({'typ': 'dpop+jwt', 'jwk': self._public_jwk}, claims)
 
     @staticmethod
-    def _error(response: 'requests.Response') -> TouchQueAPIException:
+    def _error(response: 'requests.Response') -> TouchqueAPIException:
         try:
             data = response.json()
         except ValueError:
@@ -201,7 +201,7 @@ class TouchQueAgent:
         try:
             response = requests.post(url, data=form, headers={'DPoP': self._dpop('POST', url)}, timeout=self._timeout, allow_redirects=False)
         except requests.exceptions.RequestException as e:
-            raise TouchQueNetworkException(f'Network Error: {e}') from e
+            raise TouchqueNetworkException(f'Network Error: {e}') from e
         if response.status_code != 200:
             raise self._error(response)
         data = response.json()
@@ -225,7 +225,7 @@ class TouchQueAgent:
             response = requests.request(method, url, data=_json(body) if body is not None else None, headers=headers,
                                         timeout=self._timeout, allow_redirects=False)
         except requests.exceptions.RequestException as e:
-            raise TouchQueNetworkException(f'Network Error: {e}') from e
+            raise TouchqueNetworkException(f'Network Error: {e}') from e
         if response.status_code == 401 and not retried:
             try:
                 code = response.json().get('code')
@@ -239,16 +239,16 @@ class TouchQueAgent:
         return response.json()
 
     def me(self) -> Dict[str, Any]:
-        """The agent as TouchQue sees it: its action types, owner, review date and workspace."""
+        """The agent as Touchque sees it: its action types, owner, review date and workspace."""
         return self._request('GET', '/agents/me')
 
     def request_approval(self, user: str, type: str, authorization_details: List[Dict[str, Any]], reason: Optional[str] = None,
                          presence: Optional[str] = None, expires_in: Optional[int] = None, locale: Optional[str] = None,
                          reference_id: Optional[str] = None, client_ip: Optional[str] = None,
                          user_agent: Optional[str] = None, mandate_id: Optional[str] = None) -> Dict[str, Any]:
-        """Asks the person to approve on their TouchQue phone. Show
+        """Asks the person to approve on their Touchque phone. Show
         ``challengeCode`` in your conversation (presence ``interactive``, the
-        default): the person types it on the phone. TouchQue draws the phone's
+        default): the person types it on the phone. Touchque draws the phone's
         rows from ``authorization_details``; ``reason`` is shown as unverified.
         ``requiresPasskey`` (over the policy's requirePasskeyAbove): the person
         approves with a passkey on your page instead, not on the phone."""
@@ -276,8 +276,8 @@ class TouchQueAgent:
     def get_connection_token(self, user: str, connection: str, scope: Optional[str] = None) -> Dict[str, Any]:
         """The token vault: a person's own access token at another service, for a connection that
         names this agent (``client.agents.vault``): ``{'access_token', 'token_type': 'Bearer',
-        'expires_in'?, 'scope', 'connection'}``. TouchQue refreshes it; the refresh token never
-        leaves. TouchQueAPIError not_connected when nothing is kept for them."""
+        'expires_in'?, 'scope', 'connection'}``. Touchque refreshes it; the refresh token never
+        leaves. TouchqueAPIException not_connected when nothing is kept for them."""
         body: Dict[str, Any] = {'externalUsername': user, 'connection': connection}
         if scope:
             body['scope'] = scope
@@ -297,8 +297,8 @@ class TouchQueAgent:
 
     def wait_for_approval(self, approval_id: str, timeout: float = 600, interval: float = 2) -> Dict[str, Any]:
         """Polls until the person approves (returns the state holding
-        ``approvalToken``). Raises TouchQueApprovalError when it ends otherwise
-        and TouchQueTimeoutException after ``timeout`` seconds. An approval given
+        ``approvalToken``). Raises TouchqueApprovalError when it ends otherwise
+        and TouchqueTimeoutException after ``timeout`` seconds. An approval given
         during a phone call stays ``provisional`` until the phone confirms it, and
         four eyes stay ``awaiting_second`` until the second person answers."""
         interval = max(0.5, interval)
@@ -308,7 +308,7 @@ class TouchQueAgent:
             if state.get('status') == 'approved' and state.get('approvalToken'):
                 return state
             if state.get('status') in _ENDED:
-                raise TouchQueApprovalError(approval_id, state['status'], state.get('reason'))
+                raise TouchqueApprovalError(approval_id, state['status'], state.get('reason'))
             if time.time() + interval > end:
-                raise TouchQueTimeoutException(f"TouchQue: approval '{approval_id}' was not approved within {timeout}s")
+                raise TouchqueTimeoutException(f"Touchque: approval '{approval_id}' was not approved within {timeout}s")
             time.sleep(interval)

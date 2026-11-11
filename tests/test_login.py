@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from touchque.resources.login import Login
-from touchque.exceptions import TouchQueRejectedException, TouchQueTimeoutException
+from touchque.exceptions import TouchqueRejectedException, TouchqueTimeoutException
 
 
 def test_request_posts_required_and_optional_fields():
@@ -50,7 +50,7 @@ def test_verify_raises_rejected_exception_when_status_is_rejected(_sleep):
     http.get.return_value = {"status": "REJECTED"}
     login = Login(http)
 
-    with pytest.raises(TouchQueRejectedException):
+    with pytest.raises(TouchqueRejectedException):
         login.verify("a@b.com")
 
 
@@ -61,7 +61,7 @@ def test_verify_raises_timeout_exception_after_timeout_ms_elapses(_sleep):
     http.get.return_value = {"status": "PENDING"}
     login = Login(http)
 
-    with pytest.raises(TouchQueTimeoutException):
+    with pytest.raises(TouchqueTimeoutException):
         login.verify("a@b.com", timeout_ms=1)
 
 
@@ -87,11 +87,11 @@ def test_wait_for_approval_returns_approved_true_once_confirmed(sleep):
 def test_wait_for_approval_raises_rejected_or_timeout_for_a_closed_request(_sleep):
     http = MagicMock()
     http.get.return_value = {"status": "REJECTED"}
-    with pytest.raises(TouchQueRejectedException):
+    with pytest.raises(TouchqueRejectedException):
         Login(http).wait_for_approval("req_1")
 
     http.get.return_value = {"status": "EXPIRED"}
-    with pytest.raises(TouchQueTimeoutException):
+    with pytest.raises(TouchqueTimeoutException):
         Login(http).wait_for_approval("req_1")
 
 
@@ -100,16 +100,16 @@ def test_wait_for_approval_raises_timeout_after_timeout_ms_elapses(_sleep):
     http = MagicMock()
     http.get.return_value = {"status": "PENDING"}
 
-    with pytest.raises(TouchQueTimeoutException):
+    with pytest.raises(TouchqueTimeoutException):
         Login(http).wait_for_approval("req_1", timeout_ms=1)
 
 
 @patch("touchque.resources.login.time.sleep", return_value=None)
 def test_wait_for_approval_raises_passkey_required_when_the_request_moves_to_a_passkey(_sleep):
-    from touchque import TouchQuePasskeyRequiredError
+    from touchque import TouchquePasskeyRequiredError
     http = MagicMock()
     http.get.side_effect = [{"status": "PENDING"}, {"status": "PENDING", "requiresPasskey": True}]
-    with pytest.raises(TouchQuePasskeyRequiredError) as err:
+    with pytest.raises(TouchquePasskeyRequiredError) as err:
         Login(http).wait_for_approval("req_1")
     assert err.value.request_id == "req_1"
     assert err.value.reason == "step_up"
@@ -144,11 +144,11 @@ def test_request_forwards_details_for_the_approval_screen():
 @patch("touchque.resources.login.time.sleep", return_value=None)
 def test_verify_raises_passkey_required_when_the_request_moves_to_a_passkey_mid_flight(_sleep):
     # Vishing Shield: the user tapped Approve during a call; the request is still open for a passkey.
-    from touchque import TouchQuePasskeyRequiredError
+    from touchque import TouchquePasskeyRequiredError
     http = MagicMock()
     http.post.return_value = {"requestId": "req_1", "message": "ok", "expiresAt": "t"}
     http.get.side_effect = [{"status": "PENDING"}, {"status": "PENDING", "requiresPasskey": True}]
-    with pytest.raises(TouchQuePasskeyRequiredError) as err:
+    with pytest.raises(TouchquePasskeyRequiredError) as err:
         Login(http).verify("a@b.com")
     assert err.value.request_id == "req_1"
     assert err.value.reason == "step_up"

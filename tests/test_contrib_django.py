@@ -11,7 +11,7 @@ if not _settings.configured:  # test_relay_django.py may have configured it alre
 
 from django.test import RequestFactory  # noqa: E402
 
-from touchque import Config, TouchQue  # noqa: E402
+from touchque import Config, Touchque  # noqa: E402
 from touchque.contrib.django import require_touchque  # noqa: E402
 from .fake_api import fake_api  # noqa: F401,E402
 
@@ -28,7 +28,7 @@ def make_view(tq, action='SEND_MONEY'):
 def test_full_flow(fake_api):
     fake_api.link('jane@acme.com')
     fake_api.opts(numberMatch=True)
-    tq = TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
+    tq = Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
     view = make_view(tq)
     rf = RequestFactory()
 
@@ -50,7 +50,7 @@ def test_silent_sign_in_runs_the_view_at_once_for_a_known_browser(fake_api):
 
     fake_api.link('jane@acme.com')
     fake_api.opts(silent=True)
-    tq = TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
+    tq = Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
 
     @require_touchque('LOGIN', client=tq, user=lambda req: 'jane@acme.com', silent_sign_in=True)
     def login(request):

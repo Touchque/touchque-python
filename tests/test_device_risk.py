@@ -1,15 +1,15 @@
-"""Device risk against the shared fake TouchQue API: the report goes through
+"""Device risk against the shared fake Touchque API: the report goes through
 untouched, the answer fails toward asking, and login.request / risk.check
 carry device_risk. Same scenarios as the Node SDK's DeviceRisk tests."""
 import pytest
 
-from touchque import Config, TouchQue, parse_device_risk_check
-from touchque.exceptions import TouchQueConfigException
+from touchque import Config, Touchque, parse_device_risk_check
+from touchque.exceptions import TouchqueConfigException
 from .fake_api import fake_api  # noqa: F401 (fixture)
 
 
 def _tq(fake_api):
-    return TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
+    return Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
 
 
 def test_check_sends_the_report_and_reads_the_answer(fake_api):
@@ -39,9 +39,9 @@ def test_the_form_field_as_it_came_is_answered_never_raised(fake_api):
 
 def test_bad_input_fails_before_any_request(fake_api):
     tq = _tq(fake_api)
-    with pytest.raises(TouchQueConfigException):
+    with pytest.raises(TouchqueConfigException):
         tq.device_risk.check(device_risk='r', event='tracking')
-    with pytest.raises(TouchQueConfigException):
+    with pytest.raises(TouchqueConfigException):
         tq.device_risk.get_event('../users')
 
 
@@ -95,6 +95,6 @@ def test_search_events_pages_with_the_opaque_cursor_and_sends_the_filters(fake_a
         if not cursor:
             break
     assert seen == ['dre_fakeEvent00000000003', 'dre_fakeEvent00000000002', 'dre_fakeEvent00000000001']
-    with pytest.raises(TouchQueConfigException):
+    with pytest.raises(TouchqueConfigException):
         tq.device_risk.search_events(limit=101)
 

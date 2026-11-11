@@ -1,4 +1,4 @@
-"""TouchQue Login My Account API (/me/v1) from your server: the signed-in
+"""Touchque Login My Account API (/me/v1) from your server: the signed-in
 customer's own profile, sign-in methods, devices, apps and data, called with
 their access token for audience https://<domain>/me/.
 
@@ -18,10 +18,10 @@ from urllib.parse import quote, urlsplit
 import requests
 
 from .config import _LOCAL_HOSTS
-from .exceptions import TouchQueException
+from .exceptions import TouchqueException
 
 
-class MyAccountError(TouchQueException):
+class MyAccountError(TouchqueException):
     def __init__(self, code: str, status: int, description: Optional[str] = None, max_age: Optional[int] = None):
         super().__init__(f"{code}: {description}" if description else code)
         self.code = code

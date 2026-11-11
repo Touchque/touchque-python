@@ -4,7 +4,7 @@ import pytest
 fastapi = pytest.importorskip('fastapi')
 httpx = pytest.importorskip('httpx')
 
-from touchque import TouchQueAPIException  # noqa: E402
+from touchque import TouchqueAPIException  # noqa: E402
 from touchque.contrib.fastapi import touchque_relay_router  # noqa: E402
 from .fake_api import fake_api  # noqa: F401,E402
 from .relay_helpers import fake_tq, real_tq  # noqa: E402
@@ -77,7 +77,7 @@ async def test_mismatch_delete_and_error_mapping():
         res = await c.delete('/touchque/passkey/credentials/cred_1', headers={'x-user': 'u@example.com'})
         assert res.json() == {'deleted': True}
         tq.webauthn.delete_credential.assert_called_once_with('cred_1', external_username='u@example.com')
-        tq.auth.generate_secret.side_effect = TouchQueAPIException('internal text', status=422, code='bad_user')
+        tq.auth.generate_secret.side_effect = TouchqueAPIException('internal text', status=422, code='bad_user')
         res = await c.post('/touchque/enroll/start', headers={'x-user': 'u@example.com'})
         assert res.status_code == 422 and res.json() == {'error': 'bad_user'}
         # get_login_user enables the offline routes and binds them to the first-factor user.

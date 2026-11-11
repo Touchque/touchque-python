@@ -14,10 +14,10 @@ import json
 import time
 from typing import Any, Dict, List, Optional, Union
 
-from .exceptions import TouchQueAPIException, TouchQueConfigException, TouchQueException
+from .exceptions import TouchqueAPIException, TouchqueConfigException, TouchqueException
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from .client import TouchQue
+    from .client import Touchque
 
 LoginDetails = Union[Dict[str, Any], List[Dict[str, Any]]]
 
@@ -44,7 +44,7 @@ def details_digest(details: Optional[LoginDetails]) -> str:
     return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
 
 
-def _err_code(err: TouchQueAPIException) -> Optional[str]:
+def _err_code(err: TouchqueAPIException) -> Optional[str]:
     return err.code or (err.data or {}).get('error')
 
 
@@ -62,17 +62,17 @@ def _why(res: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def start(client: 'TouchQue', action: str, user: str, details: Optional[LoginDetails] = None,
+def start(client: 'Touchque', action: str, user: str, details: Optional[LoginDetails] = None,
           reference_id: Optional[str] = None, ip: Optional[str] = None, user_agent: Optional[str] = None,
           enroll: bool = True, browser_proof: Optional[str] = None,
           context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Starts an approval for `action` — never waits.
 
     ``browser_proof`` (silent sign-ins): the browser's device-bound key proof
-    (``X-TouchQue-Browser``), passed through untouched. Once the user
-    approves, TouchQue knows this browser."""
+    (``X-Touchque-Browser``), passed through untouched. Once the user
+    approves, Touchque knows this browser."""
     if not user:
-        raise TouchQueConfigException('start() needs the user id')
+        raise TouchqueConfigException('start() needs the user id')
     norm = normalize_details(details)
     try:
         res = client.login.request(
@@ -100,7 +100,7 @@ def start(client: 'TouchQue', action: str, user: str, details: Optional[LoginDet
             # a phishing proxy in front of your site gets the approval refused. Only on this first step.
             step['canary'] = canary
         return step
-    except TouchQueAPIException as err:
+    except TouchqueAPIException as err:
         code = _err_code(err)
         why = {'caseCode': err.case_code} if err.case_code else {}
         if err.status == 404 and (code == 'device_not_linked' or 'linked device' in str(err).lower()):
@@ -112,7 +112,7 @@ def start(client: 'TouchQue', action: str, user: str, details: Optional[LoginDet
         if err.status == 429:
             return {'state': 'rate_limited', 'retryAfter': err.retry_after, **why}
         if err.status == 400 and (code == 'unknown_action' or 'invalid action type' in str(err).lower()):
-            raise TouchQueConfigException(
+            raise TouchqueConfigException(
                 f'Unknown action "{action}". Create it once with client.action_types.define("{action}") '
                 'or in the Dashboard (Action Types).'
             ) from err
@@ -125,7 +125,7 @@ def start(client: 'TouchQue', action: str, user: str, details: Optional[LoginDet
         raise
 
 
-def _enroll_step(client: 'TouchQue', user: str) -> Dict[str, Any]:
+def _enroll_step(client: 'Touchque', user: str) -> Dict[str, Any]:
     """First-time linking. Never unlinks a phone: a secret is only re-issued
     when the account is confirmed NOT linked."""
     try:
@@ -134,12 +134,12 @@ def _enroll_step(client: 'TouchQue', user: str) -> Dict[str, Any]:
             'qrCodeDataUrl': gen.get('qrCodeDataUrl'), 'recoveryCodes': gen.get('recoveryCodes'),
             'expiresAt': gen.get('expiresAt'),
         }}
-    except TouchQueAPIException as err:
+    except TouchqueAPIException as err:
         if err.status != 409:
             raise
         try:
             current = client.auth.get_user(user)
-        except TouchQueAPIException:
+        except TouchqueAPIException:
             current = None
         if current and (current.get('used') or current.get('deviceId')):
             return {'state': 'enroll', 'reason': 'already_linked'}
@@ -153,7 +153,7 @@ def _enroll_step(client: 'TouchQue', user: str) -> Dict[str, Any]:
 _STATE_MAP = {'PENDING': 'waiting', 'CONFIRMED': 'approved', 'REJECTED': 'rejected', 'EXPIRED': 'expired'}
 
 
-def check(client: 'TouchQue', request_id: str) -> Dict[str, Any]:
+def check(client: 'Touchque', request_id: str) -> Dict[str, Any]:
     """Current state of a started approval."""
     s = client.login.status(request_id)
     state = 'passkey_required' if s.get('status') == 'PENDING' and s.get('requiresPasskey') \
@@ -164,17 +164,17 @@ def check(client: 'TouchQue', request_id: str) -> Dict[str, Any]:
     return step
 
 
-def complete(client: 'TouchQue', request_id: str, user: str, action: str,
+def complete(client: 'Touchque', request_id: str, user: str, action: str,
              details: Optional[LoginDetails] = None, reference_id: Optional[str] = None) -> Dict[str, Any]:
     """Uses an approved request exactly once and checks it is for THIS user,
-    action and transaction. Raises TouchQueException if it was already used,
+    action and transaction. Raises TouchqueException if it was already used,
     not approved, or approved for something else."""
     res = client.login.consume(request_id)
     same_user = str(res.get('externalUsername', '')).lower() == str(user).lower()
     same_details = details_digest(details) == details_digest(res.get('details') or [])
     same_ref = (res.get('referenceId') or None) == (reference_id or None)
     if not same_user or res.get('type') != action or not same_details or not same_ref:
-        raise TouchQueException('TouchQue: this approval is for a different user, action or transaction.')
+        raise TouchqueException('Touchque: this approval is for a different user, action or transaction.')
     approval = {
         'requestId': request_id,
         'user': res.get('externalUsername'),

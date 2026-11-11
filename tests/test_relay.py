@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 
 from touchque import (
-    FixedWindowLimiter, RelayHandler, TouchQueAPIException, TouchQueNetworkException, TouchQueRejectedException,
+    FixedWindowLimiter, RelayHandler, TouchqueAPIException, TouchqueNetworkException, TouchqueRejectedException,
 )
 from touchque import relay as relay_module
 from .fake_api import fake_api  # noqa: F401
@@ -77,7 +77,7 @@ def test_enroll_start_returns_secret():
 
 def test_enroll_start_retries_via_reset_on_409_when_nothing_linked():
     tq = fake_tq()
-    tq.auth.generate_secret.side_effect = TouchQueAPIException('pending', status=409)
+    tq.auth.generate_secret.side_effect = TouchqueAPIException('pending', status=409)
     res = call(make(tq), 'POST', '/enroll/start')
     assert res.status == 200
     assert res.body['secret'] == 'NEWSECRET'
@@ -86,7 +86,7 @@ def test_enroll_start_retries_via_reset_on_409_when_nothing_linked():
 
 def test_enroll_start_never_replaces_a_linked_phone():
     tq = fake_tq()
-    tq.auth.generate_secret.side_effect = TouchQueAPIException('linked', status=409)
+    tq.auth.generate_secret.side_effect = TouchqueAPIException('linked', status=409)
     tq.auth.get_user.return_value = {'used': True, 'deviceId': 'victim-phone'}
     res = call(make(tq), 'POST', '/enroll/start')
     assert res.status == 409
@@ -104,7 +104,7 @@ def test_enroll_start_already_linked_against_fake_api(fake_api):
 
 def test_enroll_status_maps_404_to_not_linked():
     tq = fake_tq()
-    tq.auth.get_user.side_effect = TouchQueAPIException('nope', status=404)
+    tq.auth.get_user.side_effect = TouchqueAPIException('nope', status=404)
     res = call(make(tq), 'GET', '/enroll/status')
     assert (res.status, res.body) == (200, {'linked': False, 'used': False, 'deviceId': None})
 
@@ -162,7 +162,7 @@ def test_login_202_then_approved_calls_on_authenticated_once(fake_api):
     fake_api.approve()
     token = first.body['token']
     done = call(h, 'POST', '/login', body={'externalUsername': 'user@example.com'},
-                headers={'X-TouchQue-Token': token}, request=native_req, response=native_resp)
+                headers={'X-Touchque-Token': token}, request=native_req, response=native_resp)
     assert done.status == 200
     assert done.body['status'] == 'success'
     assert done.body['requestId'] == step['requestId']
@@ -171,7 +171,7 @@ def test_login_202_then_approved_calls_on_authenticated_once(fake_api):
         'externalUsername': 'user@example.com', 'requestId': step['requestId'], 'via': 'login'})
 
     replay = call(h, 'POST', '/login', body={'externalUsername': 'user@example.com'},
-                  headers={'X-TouchQue-Token': token})
+                  headers={'X-Touchque-Token': token})
     assert replay.status != 200
     assert on_auth.call_count == 1
 
@@ -182,7 +182,7 @@ def test_login_rejected_and_unknown_user(fake_api):
     first = call(h, 'POST', '/login', body={'externalUsername': 'user@example.com'})
     fake_api.reject()
     rej = call(h, 'POST', '/login', body={'externalUsername': 'user@example.com'},
-               headers={'X-TouchQue-Token': first.body['token']})
+               headers={'X-Touchque-Token': first.body['token']})
     assert rej.status == 403 and rej.body['touchque']['state'] == 'rejected'
     fresh = call(h, 'POST', '/login', body={'externalUsername': 'new@example.com'})
     assert fresh.status == 202 and fresh.body['touchque']['state'] == 'enroll'
@@ -209,8 +209,8 @@ def test_login_on_authenticated_error_mapping(fake_api):
     """onAuthenticated failures use the auth-result mapping (sendAuthResultError)."""
     fake_api.link('user@example.com')
     cases = [
-        (TouchQueRejectedException('no'), 403, '2FA_REJECTED'),
-        (TouchQueAPIException('Thing not found', status=404, data={'error': 'thing_missing'}), 404, 'thing_missing'),
+        (TouchqueRejectedException('no'), 403, '2FA_REJECTED'),
+        (TouchqueAPIException('Thing not found', status=404, data={'error': 'thing_missing'}), 404, 'thing_missing'),
         (RuntimeError('boom'), 503, '2FA_UNAVAILABLE'),
     ]
     for exc, status, code in cases:
@@ -220,7 +220,7 @@ def test_login_on_authenticated_error_mapping(fake_api):
         first = call(h, 'POST', '/login', body={'externalUsername': 'user@example.com'})
         fake_api.approve()
         res = call(h, 'POST', '/login', body={'externalUsername': 'user@example.com'},
-                   headers={'X-TouchQue-Token': first.body['token']})
+                   headers={'X-Touchque-Token': first.body['token']})
         assert res.status == status
         assert res.body['error'] == code
 
@@ -436,7 +436,7 @@ def test_passkey_management_routes():
 
 def test_relay_4xx_forwards_code_only_never_message():
     tq = fake_tq()
-    tq.webauthn.primary_options.side_effect = TouchQueAPIException(
+    tq.webauthn.primary_options.side_effect = TouchqueAPIException(
         'Internal detail: tenant 42 has no passkey', status=404, code='no_passkey_registered',
         data={'error': 'Internal detail', 'code': 'no_passkey_registered'})
     res = call(make(tq), 'POST', '/passkey/authenticate/options', body={'email': 'a@b.c'})
@@ -445,15 +445,15 @@ def test_relay_4xx_forwards_code_only_never_message():
 
 def test_relay_4xx_without_code_uses_data_error_or_default():
     tq = fake_tq()
-    tq.webauthn.list_credentials.side_effect = TouchQueAPIException('x', status=400, data={'error': 'bad_input'})
+    tq.webauthn.list_credentials.side_effect = TouchqueAPIException('x', status=400, data={'error': 'bad_input'})
     assert call(make(tq), 'GET', '/passkey/credentials').body == {'error': 'bad_input'}
-    tq.webauthn.list_credentials.side_effect = TouchQueAPIException('x', status=400)
+    tq.webauthn.list_credentials.side_effect = TouchqueAPIException('x', status=400)
     assert call(make(tq), 'GET', '/passkey/credentials').body == {'error': 'request_failed'}
 
 
 @pytest.mark.parametrize('exc', [
-    TouchQueAPIException('db down', status=500, code='internal'),
-    TouchQueNetworkException('Network Error: refused'),
+    TouchqueAPIException('db down', status=500, code='internal'),
+    TouchqueNetworkException('Network Error: refused'),
     RuntimeError('unexpected'),
 ])
 def test_relay_5xx_network_and_unexpected_become_502(exc):
@@ -589,13 +589,13 @@ def test_polling_a_sent_push_is_not_counted_against_the_push_limit(fake_api):
     for i in range(10):
         if i == 9:
             fake_api.approve()
-        res = call(h, 'POST', '/login', body=body, headers={'X-TouchQue-Token': first.body['token']})
+        res = call(h, 'POST', '/login', body=body, headers={'X-Touchque-Token': first.body['token']})
         assert res.status == (200 if i == 9 else 202), (i, res.status)
     # New attempts still are: 4 more starts fill the per-user budget of 5.
     for _ in range(4):
         call(h, 'POST', '/login', body=body)
     assert call(h, 'POST', '/login', body=body).status == 429
-    assert call(h, 'POST', '/login', body=body, headers={'X-TouchQue-Token': 'forged'}).status == 429
+    assert call(h, 'POST', '/login', body=body, headers={'X-Touchque-Token': 'forged'}).status == 429
 
 
 def test_adding_a_passkey_needs_the_phone(fake_api):
@@ -610,7 +610,7 @@ def test_adding_a_passkey_needs_the_phone(fake_api):
     assert first.status == 202
     assert first.body['touchque']['state'] == 'waiting' and first.body['touchque']['number'] == '47'
     assert [c['body']['type'] for c in fake_api.calls() if c['path'] == '/login/request'] == ['PASSKEY_ENROLL']
-    token = {'X-TouchQue-Token': first.body['token']}
+    token = {'X-Touchque-Token': first.body['token']}
     assert call(h, 'POST', '/passkey/register/options', body={}, headers=token).status == 202
     fake_api.approve()
     done = call(h, 'POST', '/passkey/register/options', body={}, headers=token)
@@ -623,8 +623,8 @@ def test_the_sdk_prints_nothing_unless_the_app_configures_logging():
     import sys
     code = (
         "import logging, touchque\n"
-        "logging.getLogger('touchque').error('[TouchQue] approval failed: X')\n"
-        "logging.getLogger('touchque').warning('[TouchQue] on_challenge failed: X')\n"
+        "logging.getLogger('touchque').error('[Touchque] approval failed: X')\n"
+        "logging.getLogger('touchque').warning('[Touchque] on_challenge failed: X')\n"
     )
     out = subprocess.run([sys.executable, '-W', 'ignore', '-c', code], capture_output=True, text=True, check=True)
     assert (out.stdout, out.stderr) == ('', '')

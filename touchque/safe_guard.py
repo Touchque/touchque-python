@@ -1,7 +1,7 @@
-"""Safe Guard approvals, checked without trusting TouchQue.
+"""Safe Guard approvals, checked without trusting Touchque.
 
 The approver's phone decodes the raw Safe transaction itself and signs, with a P-256 key only
-its biometrics unlock, a 105-byte approval that TouchQueSafeGuard checks on chain::
+its biometrics unlock, a 105-byte approval that TouchqueSafeGuard checks on chain::
 
     index (1) | expiresAt (8) | displayDigest (32) | r (32) | s (32)
 
@@ -23,7 +23,7 @@ import re
 import time
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Union
 
-from .exceptions import TouchQueConfigException
+from .exceptions import TouchqueConfigException
 
 __all__ = [
     'safe_tx_hash', 'safe_governance_hash', 'safe_approval_message', 'safe_display_digest', 'verify_safe_approval',
@@ -91,6 +91,7 @@ _DOMAIN_TYPEHASH = _keccak256(b'EIP712Domain(uint256 chainId,address verifyingCo
 _SAFE_TX_TYPEHASH = _keccak256(
     b'SafeTx(address to,uint256 value,bytes data,uint8 operation,uint256 safeTxGas,uint256 baseGas,uint256 gasPrice,'
     b'address gasToken,address refundReceiver,uint256 nonce)')
+# Signed data: the phone and the on-chain guard hash these exact bytes, so the type name keeps its spelling.
 _GOVERNANCE_TYPEHASH = _keccak256(b'TouchQueGovernance(uint256 chainId,address safe,address to,uint256 value,bytes32 dataHash,uint8 operation)')
 _SCHEDULE_SELECTOR = _keccak256(b'schedule(address,bytes32,bytes)')[:4]
 
@@ -103,19 +104,19 @@ def _uint(value: Any, field: str, top: int = _MAX_UINT256) -> int:
     elif isinstance(value, str) and re.match(r'^(0|[1-9][0-9]*)$', value):
         v = int(value)
     if v is None or v < 0 or v > top:
-        raise TouchQueConfigException(f'safe_guard: {field} must be a non-negative integer (a decimal string for large values).')
+        raise TouchqueConfigException(f'safe_guard: {field} must be a non-negative integer (a decimal string for large values).')
     return v
 
 
 def _address(value: Any, field: str) -> bytes:
     if not isinstance(value, str) or not _ADDRESS.match(value):
-        raise TouchQueConfigException(f'safe_guard: {field} must be an address (0x and 40 hex characters).')
+        raise TouchqueConfigException(f'safe_guard: {field} must be an address (0x and 40 hex characters).')
     return bytes.fromhex(value[2:])
 
 
 def _hex(value: Any, field: str, size: Optional[int] = None) -> bytes:
     if not isinstance(value, str) or not _HEX.match(value) or (size is not None and len(value) != 2 + 2 * size):
-        raise TouchQueConfigException(f'safe_guard: {field} must be 0x-prefixed hex' + (f' of {size} bytes.' if size is not None else '.'))
+        raise TouchqueConfigException(f'safe_guard: {field} must be 0x-prefixed hex' + (f' of {size} bytes.' if size is not None else '.'))
     return bytes.fromhex(value[2:])
 
 
@@ -134,10 +135,10 @@ def _pad(b: bytes) -> bytes:
 def _target(target: Mapping[str, Any]) -> Dict[str, Any]:
     tx = target.get('tx') if isinstance(target, Mapping) else None
     if not isinstance(tx, Mapping):
-        raise TouchQueConfigException('safe_guard: pass {"chainId", "safe", "guard", "tx": {"to", "value", "data", "operation", ..., "nonce"}}.')
+        raise TouchqueConfigException('safe_guard: pass {"chainId", "safe", "guard", "tx": {"to", "value", "data", "operation", ..., "nonce"}}.')
     operation = tx.get('operation', 0)
     if operation not in (0, 1) or isinstance(operation, bool):
-        raise TouchQueConfigException('safe_guard: tx.operation must be 0 (call) or 1 (delegatecall).')
+        raise TouchqueConfigException('safe_guard: tx.operation must be 0 (call) or 1 (delegatecall).')
     return {
         'chainId': _uint(target.get('chainId'), 'chainId', _MAX_UINT64),
         'safe': _address(target.get('safe'), 'safe'),
@@ -178,7 +179,7 @@ def safe_approval_message(purpose: str, chain_id: Union[int, str], guard: str, s
                           expires_at: Union[int, str], display_digest: str) -> str:
     """The 149-byte message the phone signs (its SHA-256 is what the guard verifies), as 0x hex."""
     if purpose not in _PURPOSES:
-        raise TouchQueConfigException("safe_guard: purpose is 'approve' or 'schedule'.")
+        raise TouchqueConfigException("safe_guard: purpose is 'approve' or 'schedule'.")
     return '0x' + (
         _MAGIC + bytes([_PURPOSES[purpose]]) + _word(_uint(chain_id, 'chainId', _MAX_UINT64)) + _address(guard, 'guard')
         + _address(safe, 'safe') + _hex(subject, 'subject', 32) + _uint(expires_at, 'expiresAt', _MAX_UINT64).to_bytes(8, 'big')
@@ -201,7 +202,7 @@ def _public_key(key: Union[str, Mapping[str, str]]):
     try:
         from cryptography.hazmat.primitives.asymmetric import ec
     except ImportError as e:  # pragma: no cover - depends on the environment
-        raise TouchQueConfigException('Safe Guard approvals need the cryptography package: pip install "touchque-authenticator[proof]"') from e
+        raise TouchqueConfigException('Safe Guard approvals need the cryptography package: pip install "touchque-authenticator[proof]"') from e
     try:
         return ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), b'\x04' + bytes.fromhex(xy))
     except ValueError:
@@ -220,7 +221,7 @@ def verify_safe_approval(target: Mapping[str, Any], approval: str, public_key: U
                          purpose: Optional[str] = None, approver_index: Optional[int] = None,
                          display_digest: Optional[str] = None, rows: Optional[Iterable[Mapping[str, str]]] = None,
                          now: Union[None, int, float, datetime.datetime] = None) -> Dict[str, Any]:
-    """Checks a phone's Safe Guard approval the way TouchQueSafeGuard does, without trusting the server that relayed it.
+    """Checks a phone's Safe Guard approval the way TouchqueSafeGuard does, without trusting the server that relayed it.
 
     The Safe and governance hashes come from ``target`` (``{"chainId", "safe", "guard", "tx"}``),
     the key from the guard's approver list on chain (``x || y``, 128 hex characters, or
@@ -288,7 +289,7 @@ def verify_safe_approval(target: Mapping[str, Any], approval: str, public_key: U
 def _approvals(approvals: Iterable[str]) -> List[bytes]:
     items = list(approvals)
     if not 1 <= len(items) <= 255:
-        raise TouchQueConfigException('safe_guard: pass 1 to 255 approvals.')
+        raise TouchqueConfigException('safe_guard: pass 1 to 255 approvals.')
     out = [_hex(a if isinstance(a, str) and a.startswith('0x') else f'0x{a}', f'approvals[{i}]', 105) for i, a in enumerate(items)]
     return sorted(out, key=lambda a: a[0])
 

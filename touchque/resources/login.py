@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 LoginDetails = Union[Dict[str, Union[str, int, float]], List[Dict[str, Any]]]
 from urllib.parse import quote
 from ..http_client import HttpClient
-from ..exceptions import TouchQueTimeoutException, TouchQueRejectedException, TouchQuePasskeyRequiredError, TouchQueConfigException
+from ..exceptions import TouchqueTimeoutException, TouchqueRejectedException, TouchquePasskeyRequiredError, TouchqueConfigException
 
 logger = logging.getLogger('touchque')
 
@@ -49,14 +49,14 @@ class Login:
         limits. Build it from server-side state, never from browser input.
 
         ``browser_proof`` (silent sign-ins): the browser's device-bound key
-        proof, exactly as the browser sent it (``X-TouchQue-Browser`` header,
+        proof, exactly as the browser sent it (``X-Touchque-Browser`` header,
         made by ``@touchque/web``). When the user approves this request on the
-        phone (or with a passkey), TouchQue remembers the browser, so a later
+        phone (or with a passkey), Touchque remembers the browser, so a later
         ``risk.check`` can let the same browser in without asking. Pass it
-        through untouched; an invalid proof only means "a browser TouchQue
+        through untouched; an invalid proof only means "a browser Touchque
         does not know".
 
-        ``context``: for your TouchQue Actions only (``event.context``): roles,
+        ``context``: for your Touchque Actions only (``event.context``): roles,
         plan, amount… Any JSON object up to 4 KB. Never shown on the phone.
 
         ``expires_in``: how long the push waits for the person, in seconds:
@@ -80,7 +80,7 @@ class Login:
 
         ``security_changes``: when the user's sign-in security last changed in
         your system, ``{'password', 'mfa', 'device', 'email', 'phone'}`` each a
-        datetime, ISO 8601 string or epoch milliseconds. TouchQue adds what it
+        datetime, ISO 8601 string or epoch milliseconds. Touchque adds what it
         saw itself; access rules and Actions read the minutes since each
         (``minutesSince.mfaChange``, ``.deviceChange``, ...), e.g. refuse
         ``PAYOUT_CHANGE`` within 24 hours of a 2FA change.
@@ -150,9 +150,9 @@ class Login:
         """Wait (poll) until the user approves or rejects a request you already sent with ``request``.
 
         Returns ``{'approved': True, 'status': 'CONFIRMED', 'requestId', 'assurance', 'confirmedVia',
-        'provisional'}``. Raises ``TouchQueRejectedException`` when the user said no,
-        ``TouchQueTimeoutException`` when the request expired or ``timeout_ms`` ran out, and
-        ``TouchQuePasskeyRequiredError`` (``reason='step_up'``) when the user tapped Approve
+        'provisional'}``. Raises ``TouchqueRejectedException`` when the user said no,
+        ``TouchqueTimeoutException`` when the request expired or ``timeout_ms`` ran out, and
+        ``TouchquePasskeyRequiredError`` (``reason='step_up'``) when the user tapped Approve
         during a call and the request now waits for a passkey in the browser::
 
             req = tq.login.request(user, 'SEND_MONEY')
@@ -175,18 +175,18 @@ class Login:
                 }
 
             if status == 'REJECTED':
-                raise TouchQueRejectedException(f"Request {request_id} was rejected by the user.")
+                raise TouchqueRejectedException(f"Request {request_id} was rejected by the user.")
 
             if status == 'EXPIRED':
-                raise TouchQueTimeoutException(f"Request {request_id} expired before it was approved.")
+                raise TouchqueTimeoutException(f"Request {request_id} expired before it was approved.")
 
             # Vishing Shield: tapped during a call, the request now waits for a passkey in the browser.
             if status == 'PENDING' and status_result.get('requiresPasskey'):
-                raise TouchQuePasskeyRequiredError(request_id, 'step_up')
+                raise TouchquePasskeyRequiredError(request_id, 'step_up')
 
             elapsed = (time.time() * 1000) - start_time
             if elapsed > timeout_ms:
-                raise TouchQueTimeoutException(f"Waiting for approval timed out after {timeout_ms}ms")
+                raise TouchqueTimeoutException(f"Waiting for approval timed out after {timeout_ms}ms")
 
             time.sleep(poll_interval_ms / 1000)
 
@@ -205,14 +205,14 @@ class Login:
             tq.login.verify(user, 'SEND_MONEY',
                             on_challenge=lambda c: c.get('challengeCode') and show(f"Pick {c['challengeCode']} on your phone"))
 
-        Raises ``TouchQuePasskeyRequiredError`` when a passkey must approve it:
+        Raises ``TouchquePasskeyRequiredError`` when a passkey must approve it:
         a phishing-resistant policy (``reason='policy'``, no push sent), or the
         user tapped Approve during a call (``reason='step_up'``, Vishing Shield):
         finish it in the browser with ``@touchque/web``."""
         request_result = self.request(external_username, type, reference_id, client_ip, user_agent, require_biometric, require_number_match, details, browser_proof, context, challenge_digits, security_changes=security_changes, destination=destination, locale=locale)
         request_id = request_result['requestId']
         if request_result.get('requiresPasskey'):
-            raise TouchQuePasskeyRequiredError(request_id)
+            raise TouchquePasskeyRequiredError(request_id)
 
         if on_challenge is not None:
             challenge = {'requestId': request_id, 'expiresAt': request_result.get('expiresAt')}
@@ -223,7 +223,7 @@ class Login:
                 on_challenge(challenge)
             except Exception as err:  # noqa: BLE001 — the user's callback must not stop the wait
                 # err.__class__, not type(err): the parameter `type` shadows the builtin here.
-                logger.warning('[TouchQue] on_challenge failed: %s: %s', err.__class__.__name__, err)
+                logger.warning('[Touchque] on_challenge failed: %s: %s', err.__class__.__name__, err)
 
         start_time = time.time() * 1000
         poll_interval_sec = 0.4
@@ -245,18 +245,18 @@ class Login:
                 }
 
             if status == 'REJECTED':
-                raise TouchQueRejectedException(f"Request {request_id} was rejected by the user.")
+                raise TouchqueRejectedException(f"Request {request_id} was rejected by the user.")
 
             if status == 'EXPIRED':
-                raise TouchQueTimeoutException(f"Request {request_id} expired before it was approved.")
+                raise TouchqueTimeoutException(f"Request {request_id} expired before it was approved.")
 
             # Vishing Shield: tapped during a call, the request now waits for a passkey in the browser.
             if status == 'PENDING' and status_result.get('requiresPasskey'):
-                raise TouchQuePasskeyRequiredError(request_id, 'step_up')
+                raise TouchquePasskeyRequiredError(request_id, 'step_up')
 
             elapsed = (time.time() * 1000) - start_time
             if elapsed > timeout_ms:
-                raise TouchQueTimeoutException(f"Login verification timed out after {timeout_ms}ms")
+                raise TouchqueTimeoutException(f"Login verification timed out after {timeout_ms}ms")
 
             time.sleep(poll_interval_sec)
 
@@ -270,7 +270,7 @@ class Login:
     def consume(self, request_id: str) -> Dict[str, Any]:
         """Uses an approved request exactly once. The first call on a
         CONFIRMED request wins atomically; every later call (a replayed
-        token, a retried form post) raises ``TouchQueAPIException`` with
+        token, a retried form post) raises ``TouchqueAPIException`` with
         ``code='already_used'`` (409)."""
         return self._http.post(f"/login/{quote(request_id, safe='')}/consume", {})
 
@@ -278,7 +278,7 @@ class Login:
 
     def report_fraud(self, request_id: str, reason: Optional[str] = None, note: Optional[str] = None) -> Dict[str, Any]:
         """Report a request you later learned was fraud — a chargeback, a
-        confirmed account takeover, a scam the user was talked into. TouchQue's
+        confirmed account takeover, a scam the user was talked into. Touchque's
         risk engine learns from it (it is the strongest signal it gets) and the
         report is kept in your audit log. The request's status does not change.
         Safe to call more than once: a repeat answers ``alreadyReported: True``.
@@ -287,7 +287,7 @@ class Login:
         :param note: free text for your audit log, at most 500 characters.
         """
         if not request_id:
-            raise TouchQueConfigException('report_fraud() needs the request id')
+            raise TouchqueConfigException('report_fraud() needs the request id')
         payload: Dict[str, Any] = {}
         if reason:
             payload['reason'] = reason

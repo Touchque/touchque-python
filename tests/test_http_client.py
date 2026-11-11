@@ -3,7 +3,7 @@ import pytest
 
 from touchque.config import Config
 from touchque.http_client import HttpClient
-from touchque.exceptions import TouchQueAPIException, TouchQueNetworkException
+from touchque.exceptions import TouchqueAPIException, TouchqueNetworkException
 
 
 def make_client(**overrides):
@@ -67,7 +67,7 @@ def test_post_raises_touchque_api_exception_on_4xx(mock_post):
     mock_post.return_value = fake_response(401, {"error": "unauthorized", "message": "Invalid API key"})
     client = make_client()
 
-    with pytest.raises(TouchQueAPIException) as exc_info:
+    with pytest.raises(TouchqueAPIException) as exc_info:
         client.post("/auth/generate-secret", {})
 
     assert "unauthorized" in str(exc_info.value)
@@ -76,7 +76,7 @@ def test_post_raises_touchque_api_exception_on_4xx(mock_post):
 @patch("touchque.http_client.requests.post", side_effect=__import__("requests").exceptions.ConnectionError("boom"))
 def test_post_wraps_network_errors(mock_post):
     client = make_client()
-    with pytest.raises(TouchQueNetworkException, match="Network Error"):
+    with pytest.raises(TouchqueNetworkException, match="Network Error"):
         client.post("/auth/generate-secret", {})
 
 

@@ -1,4 +1,4 @@
-"""TouchQue Login client: authorization URL, callback with a verified ID
+"""Touchque Login client: authorization URL, callback with a verified ID
 token, refresh, access-token checks, and the refusals (state, issuer, nonce,
 forged signature), against an in-process fake tenant."""
 

@@ -1,25 +1,25 @@
-"""TouchQue Actions in the Python SDK: every management call sends exactly what
+"""Touchque Actions in the Python SDK: every management call sends exactly what
 the shared vectors (fixtures/actions-api-vectors.json) say, against the shared
-fake TouchQue API, signed like the real API."""
+fake Touchque API, signed like the real API."""
 import json
 import os
 from urllib.parse import parse_qsl, urlparse
 
 import pytest
 
-from touchque import Config, TouchQue
-from touchque.exceptions import TouchQueConfigException
+from touchque import Config, Touchque
+from touchque.exceptions import TouchqueConfigException
 from .fake_api import fake_api  # noqa: F401 (fixture)
 
 with open(os.path.join(os.path.dirname(__file__), '..', 'fixtures', 'actions-api-vectors.json'), encoding='utf-8') as f:
     VECTORS = json.load(f)
 
 
-def client_for(api) -> TouchQue:
-    return TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=api.base_url))
+def client_for(api) -> Touchque:
+    return Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url=api.base_url))
 
 
-def call(tq: TouchQue, name: str, a: dict):
+def call(tq: Touchque, name: str, a: dict):
     acts = tq.actions
     return {
         'deploy': lambda: acts.deploy(a['slug'], trigger=a['trigger'], code=a['code'], secrets=a['secrets'], name=a['name']),
@@ -86,11 +86,11 @@ def test_loosening_version_waits_for_the_phone(fake_api):
 
 def test_bad_input_is_refused_before_any_request(fake_api):
     tq = client_for(fake_api)
-    with pytest.raises(TouchQueConfigException):
+    with pytest.raises(TouchqueConfigException):
         tq.actions.deploy('Bad Slug', trigger='login.request', code='x')
-    with pytest.raises(TouchQueConfigException):
+    with pytest.raises(TouchqueConfigException):
         tq.actions.deploy('no-code', trigger='login.request')
-    with pytest.raises(TouchQueConfigException):
+    with pytest.raises(TouchqueConfigException):
         tq.actions.secrets.set('lowercase', 'v')
     assert fake_api.calls() == []
 

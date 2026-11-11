@@ -1,16 +1,16 @@
-"""Mobile SDK (the partner's own app as the approver) against the shared fake TouchQue API:
+"""Mobile SDK (the partner's own app as the approver) against the shared fake Touchque API:
 an enrollment token the app spends once, replace for a second phone, the devices, the
 settings, and the push a MOBILE_PUSH webhook becomes. Same scenarios as the Node SDK's tests."""
 from datetime import datetime, timezone
 
 import pytest
 
-from touchque import Config, TouchQue, TouchQueAPIException, is_mobile_push_expired, mobile_push_from_webhook
+from touchque import Config, Touchque, TouchqueAPIException, is_mobile_push_expired, mobile_push_from_webhook
 from .fake_api import fake_api  # noqa: F401 (fixture)
 
 
-def client_for(api) -> TouchQue:
-    return TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=api.base_url))
+def client_for(api) -> Touchque:
+    return Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url=api.base_url))
 
 
 def test_an_enrollment_token_is_spent_once_and_a_second_phone_needs_replace(fake_api):
@@ -19,7 +19,7 @@ def test_an_enrollment_token_is_spent_once_and_a_second_phone_needs_replace(fake
     assert first['enrollmentToken'].startswith('tqe_') and first['replace'] is False
     assert fake_api.calls()[-1]['body'] == {'externalUsername': 'ada@shop.example'}
     device = fake_api._call('/__test/mobile-enroll', {'enrollmentToken': first['enrollmentToken'], 'platform': 'android'})
-    with pytest.raises(TouchQueAPIException) as e:
+    with pytest.raises(TouchqueAPIException) as e:
         tq.mobile.create_enrollment('ada@shop.example')
     assert e.value.code == 'already_enrolled'
     second = tq.mobile.create_enrollment('ada@shop.example', replace=True, ttl_seconds=300)

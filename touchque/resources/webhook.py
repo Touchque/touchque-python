@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 from ..config import Config
-from ..exceptions import TouchQueWebhookReplayException, TouchQueWebhookSignatureException
+from ..exceptions import TouchqueWebhookReplayException, TouchqueWebhookSignatureException
 
 # Default replay window: reject a callback whose signed `timestamp` is more
 # than this many seconds away from now. Matches the server's replay guard.
@@ -35,7 +35,7 @@ class WebhookReasons:
 
 
 class WebhookEvents:
-    """``event`` values of TouchQue's event webhooks. Ignore types you do not know."""
+    """``event`` values of Touchque's event webhooks. Ignore types you do not know."""
     DEVICE_LINKED = 'DEVICE_LINKED'
     DEVICE_UNLINKED = 'DEVICE_UNLINKED'
     PASSKEY_REGISTERED = 'PASSKEY_REGISTERED'
@@ -48,7 +48,7 @@ class WebhookEvents:
     APPROVAL_RECONFIRMED = 'APPROVAL_RECONFIRMED'
     #: The user took an approval back (``reason``: ``COACHED`` or ``UNDO``): end the session built on it.
     APPROVAL_REVOKED = 'APPROVAL_REVOKED'
-    # AI agents (client.agents): changes partners may act on, and what TouchQue noticed.
+    # AI agents (client.agents): changes partners may act on, and what Touchque noticed.
     #: An AI agent was registered.
     AGENT_CREATED = 'AGENT_CREATED'
     #: An AI agent was suspended (through the API or the dashboard): its tokens stopped working.
@@ -189,7 +189,7 @@ class Webhook:
         replay_cache: Optional[ReplayCache] = None,
     ) -> Dict[str, Any]:
         """
-        Verify the signature of an incoming TouchQue webhook and return the
+        Verify the signature of an incoming Touchque webhook and return the
         decoded payload.
 
         Args:
@@ -203,27 +203,27 @@ class Webhook:
                 protection). Pass ``0`` to disable the check.
             replay_cache: Optional :class:`ReplayCache` (e.g. a shared
                 :class:`MemoryReplayCache`). A second delivery of the same
-                ``jti`` raises :class:`TouchQueWebhookReplayException`.
+                ``jti`` raises :class:`TouchqueWebhookReplayException`.
 
         Raises:
-            TouchQueWebhookSignatureException: signature missing, malformed
+            TouchqueWebhookSignatureException: signature missing, malformed
                 body, signature mismatch, or a stale callback.
-            TouchQueWebhookReplayException: this ``jti`` was already accepted
+            TouchqueWebhookReplayException: this ``jti`` was already accepted
                 (a subclass of the above, so existing handlers still reject it).
         """
         if not isinstance(raw_body, str):
-            raise TouchQueWebhookSignatureException("raw_body must be a string")
+            raise TouchqueWebhookSignatureException("raw_body must be a string")
 
         try:
             payload = json.loads(raw_body)
         except json.JSONDecodeError:
-            raise TouchQueWebhookSignatureException("Invalid JSON payload")
+            raise TouchqueWebhookSignatureException("Invalid JSON payload")
         if not isinstance(payload, dict):
-            raise TouchQueWebhookSignatureException("Webhook payload must be a JSON object")
+            raise TouchqueWebhookSignatureException("Webhook payload must be a JSON object")
 
         provided = signature or payload.get("signature")
         if not isinstance(provided, str) or not provided:
-            raise TouchQueWebhookSignatureException("No signature provided")
+            raise TouchqueWebhookSignatureException("No signature provided")
 
         mac = hmac.new(
             self._config.api_secret.encode("utf-8"),
@@ -234,25 +234,25 @@ class Webhook:
         # surfaces the error text would hand an attacker a signing oracle.
         # Compared as bytes: compare_digest raises TypeError for a str with non-ASCII text.
         if not hmac.compare_digest(mac.hexdigest().encode("ascii"), provided.encode("utf-8")):
-            raise TouchQueWebhookSignatureException("Invalid webhook signature")
+            raise TouchqueWebhookSignatureException("Invalid webhook signature")
 
-        # TouchQue always signs a timestamp, so a missing or unparseable one
+        # Touchque always signs a timestamp, so a missing or unparseable one
         # fails closed instead of skipping the freshness check.
         if tolerance_seconds and tolerance_seconds > 0:
             ts = _parse_iso_timestamp(payload.get("timestamp"))
             if ts is None:
-                raise TouchQueWebhookSignatureException("Webhook timestamp is missing or invalid")
+                raise TouchqueWebhookSignatureException("Webhook timestamp is missing or invalid")
             if abs(time.time() - ts) > tolerance_seconds:
-                raise TouchQueWebhookSignatureException("Webhook timestamp is outside the allowed window")
+                raise TouchqueWebhookSignatureException("Webhook timestamp is outside the allowed window")
 
         if replay_cache is not None:
             jti = payload.get("jti")
             if not isinstance(jti, str) or not jti:
-                raise TouchQueWebhookSignatureException("Webhook jti is missing")
+                raise TouchqueWebhookSignatureException("Webhook jti is missing")
             # Remember it for twice the window so it outlives any timestamp
             # that could still pass the freshness check.
             ttl = max((tolerance_seconds or 0) * 2, 600)
             if not replay_cache.check_and_set(jti, ttl):
-                raise TouchQueWebhookReplayException(jti)
+                raise TouchqueWebhookReplayException(jti)
 
         return payload

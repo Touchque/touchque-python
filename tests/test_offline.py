@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from touchque.resources.offline import Offline
-from touchque.exceptions import TouchQueAPIException
+from touchque.exceptions import TouchqueAPIException
 from .fake_api import fake_api  # noqa: F401 (fixture)
 
 
@@ -21,7 +21,7 @@ def test_challenge_posts_expected_fields():
 
 def test_verify_returns_approved_false_with_reason_instead_of_raising():
     http = MagicMock()
-    http.post.side_effect = TouchQueAPIException("bad code", status=401, code=None, reason="invalid_code", attempts_left=3)
+    http.post.side_effect = TouchqueAPIException("bad code", status=401, code=None, reason="invalid_code", attempts_left=3)
     off = Offline(http)
 
     result = off.verify("c1", "WRONG12")
@@ -31,10 +31,10 @@ def test_verify_returns_approved_false_with_reason_instead_of_raising():
 
 def test_verify_reraises_server_errors():
     http = MagicMock()
-    http.post.side_effect = TouchQueAPIException("boom", status=500)
+    http.post.side_effect = TouchqueAPIException("boom", status=500)
     off = Offline(http)
 
-    with pytest.raises(TouchQueAPIException):
+    with pytest.raises(TouchqueAPIException):
         off.verify("c1", "AAAA123")
 
 
@@ -65,7 +65,7 @@ def test_challenge_links_the_push_and_asks_for_number_matching():
 
 def test_verify_totp_forwards_request_id_and_a_rejected_request_is_a_result():
     http = MagicMock()
-    http.post.side_effect = TouchQueAPIException("rejected", status=410, code=None, reason="request_rejected")
+    http.post.side_effect = TouchqueAPIException("rejected", status=410, code=None, reason="request_rejected")
     off = Offline(http)
 
     result = off.verify_totp("a@b.com", "ABCDEFG", request_id="req-1")
@@ -86,11 +86,11 @@ def test_totp_verifiers_posts_users_and_window():
 
 
 def test_match_totp_verifier_against_the_fake_api(fake_api):
-    from touchque import Config, TouchQue
+    from touchque import Config, Touchque
     import time as _time
 
     fake_api.link("vpn@example.com")
-    tq = TouchQue(Config(api_key="tq_test_key", api_secret="test_secret", base_url=fake_api.base_url))
+    tq = Touchque(Config(api_key="tq_test_key", api_secret="test_secret", base_url=fake_api.base_url))
     now = _time.time()
     step = int(now // 30)
     v = tq.offline.totp_verifiers(["vpn@example.com", "nobody@example.com"], from_step=step - 1, steps=4)

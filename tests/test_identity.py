@@ -1,4 +1,4 @@
-"""client.identity (TouchQue Login Management API): each call sends the
+"""client.identity (Touchque Login Management API): each call sends the
 method, path and body the API expects, signed like every partner call."""
 
 import json
@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from touchque import Config, TouchQue
+from touchque import Config, Touchque
 
 SEEN = []
 
@@ -34,7 +34,7 @@ class _Handler(BaseHTTPRequestHandler):
 def client():
     server = HTTPServer(('127.0.0.1', 0), _Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    yield TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=f'http://127.0.0.1:{server.server_port}'))
+    yield Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url=f'http://127.0.0.1:{server.server_port}'))
     server.shutdown()
 
 

@@ -1,10 +1,10 @@
-"""Shared helpers for the relay tests: a stub TouchQue client whose resource
+"""Shared helpers for the relay tests: a stub Touchque client whose resource
 methods are ``Mock``s (like the Node router tests' ``fakeTq``), and a real
 client pointed at the shared fake API."""
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from touchque import Config, TouchQue
+from touchque import Config, Touchque
 
 
 def fake_tq():
@@ -37,4 +37,4 @@ def fake_tq():
 
 
 def real_tq(fake_api):
-    return TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
+    return Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))

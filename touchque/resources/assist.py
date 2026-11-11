@@ -18,7 +18,7 @@ person moves to a new phone with Never Locked Out; the help desk cannot.
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
-from ..exceptions import TouchQueConfigException
+from ..exceptions import TouchqueConfigException
 from ..http_client import HttpClient
 
 
@@ -45,7 +45,7 @@ class Assist:
         """Starts helping a person. ``agent``: ``{'name', 'title', 'ref'}`` (``ref`` is your id for them).
         A session of the same agent for the same person is replaced."""
         if not external_username or not (agent or {}).get('name'):
-            raise TouchQueConfigException('assist.open() needs external_username and agent["name"]')
+            raise TouchqueConfigException('assist.open() needs external_username and agent["name"]')
         payload: Dict[str, Any] = {'externalUsername': external_username, 'agent': {k: v for k, v in agent.items() if v}}
         if reason:
             payload['reason'] = reason
@@ -58,7 +58,7 @@ class Assist:
     def get(self, id: str) -> Dict[str, Any]:
         """The session and its checks. Poll it while a check is ``pending``."""
         if not id:
-            raise TouchQueConfigException('assist.get() needs the session id')
+            raise TouchqueConfigException('assist.get() needs the session id')
         return self._http.get(_path(id))
 
     def list(self, external_username: Optional[str] = None, open_only: bool = False,
@@ -67,7 +67,7 @@ class Assist:
         ``open=True`` is the same as ``open_only=True`` (the name ``recovery.list`` and the other SDKs use)."""
         open_only = open_only or bool(open)
         if not external_username and not open_only:
-            raise TouchQueConfigException('assist.list() needs external_username or open_only=True')
+            raise TouchqueConfigException('assist.list() needs external_username or open_only=True')
         params: Dict[str, Any] = {}
         if external_username:
             params['externalUsername'] = external_username
@@ -80,10 +80,10 @@ class Assist:
                details: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
         """Asks the person's phone to confirm ``action`` (``reset_2fa``, ``reset_password``, ``activation_link``,
         ``recovery_link``, ``unlock``, ``new_phone``, ``remove_passkey`` or your own). Returns ``requestId`` and
-        ``challengeCode`` (for the agent only). Raises TouchQueAPIException ``no_phone``, ``assist_not_open`` or
+        ``challengeCode`` (for the agent only). Raises TouchqueAPIException ``no_phone``, ``assist_not_open`` or
         ``rate_limited``."""
         if not id or not action:
-            raise TouchQueConfigException('assist.verify() needs the session id and an action')
+            raise TouchqueConfigException('assist.verify() needs the session id and an action')
         payload: Dict[str, Any] = {'action': action}
         if action_text:
             payload['actionText'] = action_text
@@ -94,19 +94,19 @@ class Assist:
     def spend(self, id: str, request_id: str, action: str) -> Dict[str, Any]:
         """Uses a passed check for its action, right before you take it; ``check_required`` (428) otherwise."""
         if not id or not request_id or not action:
-            raise TouchQueConfigException('assist.spend() needs the session id, request_id and action')
+            raise TouchqueConfigException('assist.spend() needs the session id, request_id and action')
         return self._http.post(_path(id, '/spend'), {'requestId': request_id, 'action': action})
 
     def unfreeze(self, id: str, request_id: str) -> Dict[str, Any]:
         """Lifts the person's approval freeze with a passed check for ``unlock``: ``{'unfrozen', 'session'}``."""
         if not id or not request_id:
-            raise TouchQueConfigException('assist.unfreeze() needs the session id and request_id')
+            raise TouchqueConfigException('assist.unfreeze() needs the session id and request_id')
         return self._http.post(_path(id, '/unfreeze'), {'requestId': request_id})
 
     def end(self, id: str, by: Optional[str] = None, reason: Optional[str] = None) -> Dict[str, Any]:
         """Stops helping; checks still waiting on the phone expire."""
         if not id:
-            raise TouchQueConfigException('assist.end() needs the session id')
+            raise TouchqueConfigException('assist.end() needs the session id')
         payload: Dict[str, Any] = {}
         if by:
             payload['by'] = by

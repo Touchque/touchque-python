@@ -4,7 +4,7 @@ ID for every browser on your sign-up, password-reset, sign-in or approval page.
 The page identifies with ``@touchque/web`` (``deviceRisk.identify({ siteKey,
 purpose })`` gives ``{ visitorId, requestId, confidence }``) and sends you the
 requestId. Never trust the page's copy: read the identification here
-(``get_event``) or check it for an account (``check``). TouchQue keeps keyed
+(``get_event``) or check it for an account (``check``). Touchque keeps keyed
 hashes only, with a key of your workspace alone, and its risk engine decides.
 
 Every signal only ever asks for more: ``stepUp`` means an extra check on this
@@ -25,7 +25,7 @@ tag, or with it blocked, only gets the visitor a step-up.
 import re
 from typing import Any, Dict, Optional
 
-from ..exceptions import TouchQueConfigException
+from ..exceptions import TouchqueConfigException
 from ..http_client import HttpClient
 
 #: The pages a device report may come from.
@@ -108,7 +108,7 @@ class DeviceRisk:
                 ask_for_email_code()   # never refuse on it alone
         """
         if event not in DEVICE_RISK_EVENTS:
-            raise TouchQueConfigException(f"device_risk.check() event must be one of {', '.join(DEVICE_RISK_EVENTS)}")
+            raise TouchqueConfigException(f"device_risk.check() event must be one of {', '.join(DEVICE_RISK_EVENTS)}")
         payload: Dict[str, Any] = {}
         if isinstance(request_id, str) and request_id:
             payload['requestId'] = request_id[:64]
@@ -147,7 +147,7 @@ class DeviceRisk:
                     break
         """
         if limit is not None and (not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100):
-            raise TouchQueConfigException('device_risk.search_events() limit must be 1 to 100')
+            raise TouchqueConfigException('device_risk.search_events() limit must be 1 to 100')
         params: Dict[str, Any] = {}
         for key, value in (('from', from_), ('to', to), ('signal', signal), ('kind', kind), ('origin', origin), ('ip', ip),
                            ('account', account), ('visitorId', visitor_id), ('requestId', request_id), ('cursor', cursor)):
@@ -170,5 +170,5 @@ class DeviceRisk:
         """The trusted identification behind a request_id: the visitor, how sure,
         what the page showed, the risk engine's verdict. Read-only."""
         if not isinstance(request_id, str) or not _REQUEST_ID.match(request_id):
-            raise TouchQueConfigException('device_risk.get_event() needs a request_id (dre_...)')
+            raise TouchqueConfigException('device_risk.get_event() needs a request_id (dre_...)')
         return self._http.get(f'/device-risk/events/{request_id}')

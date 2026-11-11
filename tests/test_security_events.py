@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 
 from touchque import SecurityEventError, SecurityEventVerifier, SECURITY_EVENT_TYPES, poll_security_events
-from touchque.exceptions import TouchQueConfigException
+from touchque.exceptions import TouchqueConfigException
 
 pytest.importorskip('cryptography')
 
@@ -109,5 +109,5 @@ def test_a_refused_poll_raises_with_the_transmitters_error(transmitter):
     assert POLLED == [{'auth': 'Bearer tqssf_wrong', 'body': {}}]
     for call in (lambda: poll_security_events(url='http://sso.example.com/ssf/poll/s1', token='tqssf_x'),
                  lambda: poll_security_events(url=f'{transmitter}/ssf/poll/s1', token='')):
-        with pytest.raises(TouchQueConfigException):
+        with pytest.raises(TouchqueConfigException):
             call()

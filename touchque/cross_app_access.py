@@ -1,12 +1,12 @@
 """Cross App Access: Identity Assertion JWT Authorization Grants (ID-JAG,
 draft-ietf-oauth-identity-assertion-authz-grant, an open standard).
 
-An organization's identity provider (TouchQue SSO) decides which of its apps
+An organization's identity provider (Touchque SSO) decides which of its apps
 may reach which other service for its members; the app trades a member's ID
 token for an ID-JAG there, then the ID-JAG for an access token at the other
 service's authorization server, with no consent screen per member.
 
-Your app, signed in with TouchQue SSO (an OpenID Connect app with a secret)::
+Your app, signed in with Touchque SSO (an OpenID Connect app with a secret)::
 
     jag = request_id_jag(issuer='https://sso.touchque.com', client_id=client_id, client_secret=secret,
                          id_token=id_token, audience='https://auth.files.example')
@@ -30,7 +30,7 @@ from urllib.parse import quote, urlparse
 
 import requests
 
-from .exceptions import TouchQueConfigException
+from .exceptions import TouchqueConfigException
 from .mcp_auth import _json_part, _b64d, _public_key, _verify
 
 __all__ = [
@@ -70,7 +70,7 @@ def _get_json(url: str) -> Dict[str, Any]:
 def _discover(issuer: str) -> Dict[str, Any]:
     meta = _get_json(issuer.rstrip('/') + '/.well-known/openid-configuration')
     if meta.get('issuer') != issuer:
-        raise TouchQueConfigException("the identity provider's metadata does not match its issuer")
+        raise TouchqueConfigException("the identity provider's metadata does not match its issuer")
     return meta
 
 
@@ -80,7 +80,7 @@ class IdJagVerifier:
     def __init__(self, issuer: str, audience: str, jwks_uri: Optional[str] = None, clock_skew: int = 60,
                  first_use: Optional[Callable[[str, int], bool]] = None):
         if not issuer or not audience:
-            raise TouchQueConfigException("IdJagVerifier needs issuer (the identity provider) and audience (your authorization server's issuer)")
+            raise TouchqueConfigException("IdJagVerifier needs issuer (the identity provider) and audience (your authorization server's issuer)")
         self.issuer = issuer
         self.audience = audience
         self.jwks_uri = jwks_uri
@@ -107,7 +107,7 @@ class IdJagVerifier:
         if not self.jwks_uri:
             meta = _discover(self.issuer)
             if not isinstance(meta.get('jwks_uri'), str):
-                raise TouchQueConfigException('the identity provider names no jwks_uri')
+                raise TouchqueConfigException('the identity provider names no jwks_uri')
             self.jwks_uri = meta['jwks_uri']
         jwks = _get_json(self.jwks_uri)
         self._keys = {k['kid']: _public_key(k) for k in jwks.get('keys', []) if k.get('kid')}
@@ -173,7 +173,7 @@ class IdJagVerifier:
 
 def _post_form(url: str, form: Dict[str, Optional[str]], basic: Optional[tuple] = None) -> Dict[str, Any]:
     if not _safe_url(url):
-        raise TouchQueConfigException(f'{url} must be an https URL')
+        raise TouchqueConfigException(f'{url} must be an https URL')
     headers = {'Accept': 'application/json'}
     if basic:
         raw = f'{quote(basic[0], safe="")}:{quote(basic[1], safe="")}'
@@ -199,10 +199,10 @@ def request_id_jag(*, client_id: str, client_secret: str, id_token: str, audienc
     ``{'assertion', 'expires_in', 'scope'}``."""
     if not token_endpoint:
         if not issuer:
-            raise TouchQueConfigException('request_id_jag needs issuer or token_endpoint')
+            raise TouchqueConfigException('request_id_jag needs issuer or token_endpoint')
         token_endpoint = _discover(issuer).get('token_endpoint')
         if not isinstance(token_endpoint, str):
-            raise TouchQueConfigException('the identity provider names no token_endpoint')
+            raise TouchqueConfigException('the identity provider names no token_endpoint')
     data = _post_form(token_endpoint, {
         'grant_type': TOKEN_EXCHANGE_GRANT, 'requested_token_type': ID_JAG_TOKEN_TYPE,
         'subject_token': id_token, 'subject_token_type': ID_TOKEN_TYPE,

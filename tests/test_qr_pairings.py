@@ -1,4 +1,4 @@
-"""QR pairing against the shared fake TouchQue API: register, the QR's text and
+"""QR pairing against the shared fake Touchque API: register, the QR's text and
 hash, the phone's scan, a request for the phone that scanned, and refusals.
 Same scenarios as the Node SDK's QrPairings tests."""
 import base64
@@ -9,15 +9,15 @@ import urllib.request
 
 import pytest
 
-from touchque import Config, TouchQue, TouchQueAPIException, qr_pairing_uri
-from touchque.exceptions import TouchQueConfigException
+from touchque import Config, Touchque, TouchqueAPIException, qr_pairing_uri
+from touchque.exceptions import TouchqueConfigException
 from .fake_api import fake_api  # noqa: F401 (fixture)
 
 THUMB = 'NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs'
 
 
 def _tq(fake_api):
-    return TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
+    return Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
 
 
 def _stored(fake_api):
@@ -34,7 +34,7 @@ def test_create_scan_then_ask_the_phone_that_scanned(fake_api):
     digest = base64.urlsafe_b64encode(hashlib.sha256(p['nonce'].encode()).digest()).rstrip(b'=').decode()
     assert _stored(fake_api)['nonceHash'] == digest
     assert tq.qr_pairings.get(p['pairingId'])['state'] == 'waiting'
-    with pytest.raises(TouchQueAPIException) as e:
+    with pytest.raises(TouchqueAPIException) as e:
         tq.login.request('ayse@acme.com', qr_pairing=p['pairingId'])
     assert e.value.code == 'pairing_not_confirmed'
 
@@ -50,7 +50,7 @@ def test_refuse_after_the_scan_and_checks_before_the_call(fake_api):
     fake_api.link('ayse@acme.com')
     tq = _tq(fake_api)
     p = tq.qr_pairings.create(THUMB, ttl_seconds=60)
-    with pytest.raises(TouchQueAPIException) as e:
+    with pytest.raises(TouchqueAPIException) as e:
         tq.qr_pairings.refuse(p['pairingId'], 'policy', 'Not yet')
     assert e.value.status == 409 and e.value.code == 'not_open'
     fake_api._call('/__test/qr-scan', {'id': p['pairingId'], 'user': 'ayse@acme.com', 'confirm': False})
@@ -59,7 +59,7 @@ def test_refuse_after_the_scan_and_checks_before_the_call(fake_api):
     assert refused['outcome']['reason'] == 'device_not_approved' and refused['outcome']['deviceCode'] == 'ABC-123'
     for call in (lambda: tq.qr_pairings.create('short'), lambda: tq.qr_pairings.create(THUMB, ttl_seconds=10),
                  lambda: tq.qr_pairings.refuse(p['pairingId'], 'nope', 'x'), lambda: tq.qr_pairings.refuse(p['pairingId'], 'other', ' ')):
-        with pytest.raises(TouchQueConfigException):
+        with pytest.raises(TouchqueConfigException):
             call()
 
 

@@ -8,9 +8,9 @@ from typing import Dict, Any, Optional
 from urllib.parse import urlencode
 
 from .config import Config
-from .exceptions import TouchQueAPIException, TouchQueNetworkException, api_exception
+from .exceptions import TouchqueAPIException, TouchqueNetworkException, api_exception
 
-SDK_VERSION = '4.2.0'
+SDK_VERSION = '5.0.0'
 
 def _query_value(value: Any) -> Any:
     # The API reads only 'true' / 'false'; urlencode would send Python's 'True' / 'False'.
@@ -43,7 +43,7 @@ class HttpClient:
                 timeout=timeout_sec, allow_redirects=False,
             )
         except requests.exceptions.RequestException as e:
-            raise TouchQueNetworkException(f"Network Error: {e}") from e
+            raise TouchqueNetworkException(f"Network Error: {e}") from e
         return self._handle_response(response)
 
     def put(self, endpoint: str, body: Dict[str, Any]) -> Dict[str, Any]:
@@ -61,7 +61,7 @@ class HttpClient:
                 timeout=self.config.timeout / 1000.0, allow_redirects=False,
             )
         except requests.exceptions.RequestException as e:
-            raise TouchQueNetworkException(f"Network Error: {e}") from e
+            raise TouchqueNetworkException(f"Network Error: {e}") from e
         return self._handle_response(response)
 
     def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -77,7 +77,7 @@ class HttpClient:
                 timeout=timeout_sec, allow_redirects=False,
             )
         except requests.exceptions.RequestException as e:
-            raise TouchQueNetworkException(f"Network Error: {e}") from e
+            raise TouchqueNetworkException(f"Network Error: {e}") from e
         return self._handle_response(response)
 
     def get_text(self, endpoint: str) -> str:
@@ -89,7 +89,7 @@ class HttpClient:
                 timeout=self.config.timeout / 1000.0, allow_redirects=False,
             )
         except requests.exceptions.RequestException as e:
-            raise TouchQueNetworkException(f"Network Error: {e}") from e
+            raise TouchqueNetworkException(f"Network Error: {e}") from e
         if response.status_code >= 400:
             self._handle_response(response)
         return response.text
@@ -103,7 +103,7 @@ class HttpClient:
                 timeout=timeout_sec, allow_redirects=False,
             )
         except requests.exceptions.RequestException as e:
-            raise TouchQueNetworkException(f"Network Error: {e}") from e
+            raise TouchqueNetworkException(f"Network Error: {e}") from e
         return self._handle_response(response)
 
     def _auth_headers(self, method: str, path_with_query: str, body: str) -> Dict[str, str]:

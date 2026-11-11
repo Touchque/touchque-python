@@ -1,4 +1,4 @@
-"""TouchQue Login (hosted sign-in) for your app: an OpenID Connect client for
+"""Touchque Login (hosted sign-in) for your app: an OpenID Connect client for
 your tenant (acme.login.touchque.com or your own domain).
 
     login = HostedLogin(domain="acme.login.touchque.com", client_id=..., client_secret=..., redirect_uri=...)
@@ -16,7 +16,7 @@ list the grant, and an API that grants it scopes)::
 
     for_ada = login.exchange_token(adas_access_token, audience="https://api.acme.com")   # RFC 8693
     ask = login.ask_user(login_hint="ada@acme.com", scope="openid payments:create", binding_message="Pay invoice 42")
-    reply(f"Type {ask.binding_code} in the TouchQue app")
+    reply(f"Type {ask.binding_code} in the Touchque app")
     approved = login.wait_for_user(ask)                                                 # CIBA, poll mode
 """
 
@@ -33,13 +33,13 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, quote
 
 import requests
 
-from .exceptions import TouchQueException
+from .exceptions import TouchqueException
 from .my_account import MyAccount, _issuer_of
 
 __all__ = ["HostedLogin", "HostedLoginError", "AuthorizationRequest", "TokenSet", "UserApprovalRequest"]
 
 
-class HostedLoginError(TouchQueException):
+class HostedLoginError(TouchqueException):
     """A sign-in or token check failed. ``code`` is machine-readable."""
 
     def __init__(self, code: str, description: Optional[str] = None, status: Optional[int] = None):
@@ -280,7 +280,7 @@ class HostedLogin:
 
     def get_connection_token(self, user_access_token: str, connection: str, scope: Optional[str] = None) -> TokenSet:
         """Token vault: the provider's own access token (Google, Microsoft, GitHub...) for the signed-in
-        user, from a connection that stores tokens. TouchQue refreshes it; the refresh token never
+        user, from a connection that stores tokens. Touchque refreshes it; the refresh token never
         leaves. ``user_access_token`` is the user's token for this app (or for an app the connection
         lists). HostedLoginError invalid_grant: the user has not signed in with the connection since it
         started storing tokens, or they stopped app access."""

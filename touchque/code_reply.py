@@ -2,7 +2,7 @@
 
 A sign-in code another service sent them (a text message, WhatsApp, e-mail). Each request gets
 a one-time P-256 key pair; its public key goes with the request, the phone encrypts what was
-typed to it, and only you can open it: TouchQue stores and hands back nothing but the
+typed to it, and only you can open it: Touchque stores and hands back nothing but the
 ciphertext (``login.status(request_id)['reply']['ct']``).
 
 ECDH P-256, HKDF-SHA256 (salt: the request id, info ``touchque-code-reply-v1``), AES-256-GCM
@@ -15,7 +15,7 @@ import base64
 import re
 from typing import Dict, Optional
 
-from .exceptions import TouchQueConfigException
+from .exceptions import TouchqueConfigException
 
 _INFO = b'touchque-code-reply-v1'
 _CT_RE = re.compile(r'^v1\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$')
@@ -37,7 +37,7 @@ def _crypto():
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
         from cryptography.hazmat.primitives.kdf.hkdf import HKDF
     except ImportError as e:  # pragma: no cover - depends on the environment
-        raise TouchQueConfigException('Code replies need the cryptography package: pip install "touchque-authenticator[proof]"') from e
+        raise TouchqueConfigException('Code replies need the cryptography package: pip install "touchque-authenticator[proof]"') from e
     return hashes, serialization, ec, AESGCM, HKDF
 
 

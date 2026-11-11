@@ -2,7 +2,7 @@ import pytest
 
 flask = pytest.importorskip('flask')
 
-from touchque import Config, TouchQue
+from touchque import Config, Touchque
 from touchque.contrib.flask import require_touchque
 from .fake_api import fake_api  # noqa: F401
 
@@ -25,7 +25,7 @@ def make_app(tq, action='SEND_MONEY'):
 def test_full_flow(fake_api):
     fake_api.link('jane@acme.com')
     fake_api.opts(numberMatch=True)
-    tq = TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
+    tq = Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
     client = make_app(tq).test_client()
 
     first = client.post('/transfer', json={'amount': 5}, headers={'X-User': 'jane@acme.com'})
@@ -34,16 +34,16 @@ def test_full_flow(fake_api):
     token = first.get_json()['token']
 
     fake_api.approve()
-    done = client.post('/transfer', json={'amount': 5}, headers={'X-User': 'jane@acme.com', 'X-TouchQue-Token': token})
+    done = client.post('/transfer', json={'amount': 5}, headers={'X-User': 'jane@acme.com', 'X-Touchque-Token': token})
     assert done.status_code == 200
     assert done.get_json()['done'] is True
 
-    replay = client.post('/transfer', json={'amount': 5}, headers={'X-User': 'jane@acme.com', 'X-TouchQue-Token': token})
+    replay = client.post('/transfer', json={'amount': 5}, headers={'X-User': 'jane@acme.com', 'X-Touchque-Token': token})
     assert replay.status_code != 200
 
 
 def test_no_user_is_401(fake_api):
-    tq = TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
+    tq = Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
     client = make_app(tq).test_client()
     res = client.post('/transfer', json={'amount': 5})
     assert res.status_code == 401
@@ -66,8 +66,8 @@ def test_silent_sign_in_runs_the_view_at_once_for_a_known_browser(fake_api):
     from .silent_vectors import PROOF
     fake_api.link('jane@acme.com')
     fake_api.opts(silent=True)
-    tq = TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
-    res = make_login_app(tq, silent_sign_in=True).test_client().post('/login/2fa', headers={'X-TouchQue-Browser': PROOF})
+    tq = Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
+    res = make_login_app(tq, silent_sign_in=True).test_client().post('/login/2fa', headers={'X-Touchque-Browser': PROOF})
     assert res.status_code == 200
     assert res.get_json()['touchque']['confirmedVia'] == 'SILENT'
     assert res.get_json()['touchque']['assurance']['method'] == 'silent'
@@ -78,8 +78,8 @@ def test_without_silent_sign_in_the_header_is_ignored(fake_api):
     from .silent_vectors import PROOF
     fake_api.link('jane@acme.com')
     fake_api.opts(silent=True)
-    tq = TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
-    res = make_login_app(tq).test_client().post('/login/2fa', headers={'X-TouchQue-Browser': PROOF})
+    tq = Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
+    res = make_login_app(tq).test_client().post('/login/2fa', headers={'X-Touchque-Browser': PROOF})
     assert res.status_code == 202
     assert '/risk/check' not in fake_api.paths()
     assert 'browserProof' not in fake_api.calls()[-1]['body']

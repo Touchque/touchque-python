@@ -3,7 +3,7 @@
 An identity provider sends a SET (RFC 8417) when something happens to a
 person's account after sign-in: CAEP session-revoked, credential-change,
 device-compliance-change; RISC account-disabled, credential-compromise.
-TouchQue SSO sends them for an organization's members to the receivers its
+Touchque SSO sends them for an organization's members to the receivers its
 admin adds (Organization > Continuous access). Your app ends the person's
 sessions or asks them to sign in again.
 
@@ -36,14 +36,14 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-from .exceptions import TouchQueConfigException
+from .exceptions import TouchqueConfigException
 from .mcp_auth import _json_part, _b64d, _public_key, _verify
 from .cross_app_access import _get_json, _safe_url
 
 SET_TYP = 'secevent+jwt'
 _NAMESPACE = re.compile(r'^https://schemas\.openid\.net/secevent/(caep|risc|ssf)/event-type/([a-z0-9-]+)$')
 
-#: The event types TouchQue sends, by their short name.
+#: The event types Touchque sends, by their short name.
 SECURITY_EVENT_TYPES = {
     'session-revoked': 'https://schemas.openid.net/secevent/caep/event-type/session-revoked',
     'credential-change': 'https://schemas.openid.net/secevent/caep/event-type/credential-change',
@@ -72,7 +72,7 @@ class SecurityEvent:
     audience: List[str]
     #: Seconds since the epoch.
     issued_at: int
-    #: TouchQue puts the case code of its decision here ("Why?" in the dashboard).
+    #: Touchque puts the case code of its decision here ("Why?" in the dashboard).
     txn: Optional[str]
     #: The subject as sent (sub_id): {'format': 'email', 'email': ...} for a person.
     subject: Dict[str, Any]
@@ -90,7 +90,7 @@ class SecurityEventVerifier:
     def __init__(self, issuer: str, audience: str, jwks_uri: Optional[str] = None, jwks: Optional[Dict[str, Any]] = None,
                  clock_skew: int = 300):
         if not issuer or not audience:
-            raise TouchQueConfigException("SecurityEventVerifier needs issuer (the transmitter) and audience (your stream's aud)")
+            raise TouchqueConfigException("SecurityEventVerifier needs issuer (the transmitter) and audience (your stream's aud)")
         self.issuer = issuer
         self.audience = audience
         self.jwks_uri = jwks_uri
@@ -181,9 +181,9 @@ def poll_security_events(*, url: str, token: str, ack: Optional[List[str]] = Non
     """One poll (RFC 8936): acknowledges what you handled and returns
     ``{'sets': {jti: token}, 'more_available': bool}``."""
     if not _safe_url(url):
-        raise TouchQueConfigException(f'{url} must be an https URL')
+        raise TouchqueConfigException(f'{url} must be an https URL')
     if not token:
-        raise TouchQueConfigException("poll_security_events needs the stream's token")
+        raise TouchqueConfigException("poll_security_events needs the stream's token")
     body: Dict[str, Any] = {}
     if ack is not None:
         body['ack'] = ack

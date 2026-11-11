@@ -1,29 +1,29 @@
-"""An organization's AI agent on TouchQue SSO (Organization → AI agents in the
+"""An organization's AI agent on Touchque SSO (Organization → AI agents in the
 dashboard): it gets 5-minute tokens for one of the organization's apps,
 proving who it is with its own key (private_key_jwt) or with the token its
 platform already gives it (GitHub Actions, GitLab, Google Cloud, Azure,
 Kubernetes), and binds each token to a DPoP key made when it starts. The app
-checks the token with TouchQue's JWKS and the DPoP proof on every call.
+checks the token with Touchque's JWKS and the DPoP proof on every call.
 
-    agent = TouchQueOrgAgent(agent_id='oagt_...', private_key=os.environ['TQ_ORG_AGENT_KEY'])
+    agent = TouchqueOrgAgent(agent_id='oagt_...', private_key=os.environ['TQ_ORG_AGENT_KEY'])
     response = agent.request('GET', 'https://payments.acme.com/invoices', resource='tqapp_...')
 
     # In a GitHub Actions job (permissions: id-token: write), with no key to store:
-    agent = TouchQueOrgAgent(agent_id='oagt_...', assertion=github_actions_token('touchque'))
+    agent = TouchqueOrgAgent(agent_id='oagt_...', assertion=github_actions_token('touchque'))
 
 Acting for a member, when its admin allowed it (Organization → AI agents → Access):
 
     token = agent.exchange_token(subject_token=members_access_token, resource='tqapp_...')    # RFC 8693
     ask = agent.ask_member('ada@acme.com', binding_message='Pay invoice 42', authorization_details=[payment])
-    reply(f"Type {ask['binding_code']} in the TouchQue app.")
+    reply(f"Type {ask['binding_code']} in the Touchque app.")
     approved = agent.wait_for_member(ask)                                                     # CIBA, poll mode
 
-The token vault: a member's own account at another service they connected on TouchQue, a fresh
+The token vault: a member's own account at another service they connected on Touchque, a fresh
 provider token (never the refresh token)::
 
     google = agent.get_connection_token(members_access_token, 'google')
 
-A shared account (a site with only a password): the member's own TouchQue extension signs in, in their
+A shared account (a site with only a password): the member's own Touchque extension signs in, in their
 browser, after their phone approves with the agent named; the agent never sees the password::
 
     ask = agent.ask_to_open_shared_account('k3J...', 'ada@acme.com', message='Post the launch photo')
@@ -43,10 +43,10 @@ from urllib.parse import urlparse
 
 import requests
 
-from .agent import AGENT_ASSERTION_TYPE, TouchQueAgent, _b64url, _crypto, _json, _load_private_key, _public_jwk, jwk_thumbprint
-from .exceptions import TouchQueAPIException, TouchQueConfigException, TouchQueNetworkException, TouchQueTimeoutException
+from .agent import AGENT_ASSERTION_TYPE, TouchqueAgent, _b64url, _crypto, _json, _load_private_key, _public_jwk, jwk_thumbprint
+from .exceptions import TouchqueAPIException, TouchqueConfigException, TouchqueNetworkException, TouchqueTimeoutException
 
-__all__ = ['TouchQueOrgAgent', 'github_actions_token', 'file_token']
+__all__ = ['TouchqueOrgAgent', 'github_actions_token', 'file_token']
 
 _ORG_AGENT_ID = re.compile(r'^oagt_[a-z2-9]{20}$')
 _LOCAL_HOSTS = {'localhost', '127.0.0.1', '::1'}
@@ -62,11 +62,11 @@ def github_actions_token(audience: str = 'touchque') -> Callable[[], str]:
         url = os.environ.get('ACTIONS_ID_TOKEN_REQUEST_URL')
         bearer = os.environ.get('ACTIONS_ID_TOKEN_REQUEST_TOKEN')
         if not url or not bearer:
-            raise TouchQueConfigException('Not in a GitHub Actions job with `permissions: id-token: write`')
+            raise TouchqueConfigException('Not in a GitHub Actions job with `permissions: id-token: write`')
         response = requests.get(url, params={'audience': audience}, headers={'Authorization': f'Bearer {bearer}'}, timeout=10)
         value = response.json().get('value') if response.ok else None
         if not value:
-            raise TouchQueConfigException('GitHub gave no token')
+            raise TouchqueConfigException('GitHub gave no token')
         return value
     return fetch
 
@@ -79,7 +79,7 @@ def file_token(path: str) -> Callable[[], str]:
     return read
 
 
-class TouchQueOrgAgent:
+class TouchqueOrgAgent:
     """An organization's AI agent (see the module docstring)."""
 
     def __init__(self, agent_id: Optional[str] = None, private_key: Union[Dict[str, Any], str, Any, None] = None,
@@ -87,17 +87,17 @@ class TouchQueOrgAgent:
                  resource: Optional[str] = None, scope: Optional[str] = None, timeout: int = 10000):
         agent_id = agent_id if agent_id is not None else os.environ.get('TQ_ORG_AGENT_ID', '')
         if not _ORG_AGENT_ID.match(agent_id or ''):
-            raise TouchQueConfigException('Set TQ_ORG_AGENT_ID (or pass agent_id): the oagt_... id from Organization → AI agents')
+            raise TouchqueConfigException('Set TQ_ORG_AGENT_ID (or pass agent_id): the oagt_... id from Organization → AI agents')
         self.agent_id = agent_id
         self.issuer = (issuer or os.environ.get('TQ_SSO_URL') or 'https://sso.touchque.com').rstrip('/')
         parsed = urlparse(self.issuer)
         if parsed.scheme != 'https' and not (parsed.scheme == 'http' and (parsed.hostname or '') in _LOCAL_HOSTS):
-            raise TouchQueConfigException(f'Refusing a plaintext issuer for "{parsed.hostname}": use https://')
+            raise TouchqueConfigException(f'Refusing a plaintext issuer for "{parsed.hostname}": use https://')
         self._assertion_source = assertion
         if assertion is None:
             key_input = private_key if private_key is not None else os.environ.get('TQ_ORG_AGENT_KEY')
             if not key_input:
-                raise TouchQueConfigException("Pass private_key (or set TQ_ORG_AGENT_KEY), or assertion with the platform's token")
+                raise TouchqueConfigException("Pass private_key (or set TQ_ORG_AGENT_KEY), or assertion with the platform's token")
             self._key = _load_private_key(key_input)
             self._key_alg = 'EdDSA' if type(self._key).__name__.startswith('Ed25519') else 'ES256'
             given = key_input.get('kid') if isinstance(key_input, dict) else None
@@ -145,9 +145,9 @@ class TouchQueOrgAgent:
         try:
             response = requests.post(url, data=form, headers={'DPoP': self.dpop_proof('POST', url)} if dpop else {}, timeout=self._timeout, allow_redirects=False)
         except requests.exceptions.RequestException as e:
-            raise TouchQueNetworkException(str(e)) from e
+            raise TouchqueNetworkException(str(e)) from e
         if response.status_code != 200:
-            raise TouchQueAgent._error(response)
+            raise TouchqueAgent._error(response)
         return response.json()
 
     @staticmethod
@@ -181,11 +181,11 @@ class TouchQueOrgAgent:
 
     def get_connection_token(self, subject_token: str, connection: str, scope: Optional[str] = None) -> Dict[str, Any]:
         """The token vault: a member's own access token at another service (Google, Microsoft 365,
-        GitHub...) they connected on TouchQue, for a connection that names this agent:
+        GitHub...) they connected on Touchque, for a connection that names this agent:
         ``{'access_token', 'token_type': 'Bearer', 'expires_in'?, 'scope', 'connection'}``.
         ``subject_token`` is the member's token, as for ``exchange_token``; ``scope`` may only narrow
-        what the member granted. TouchQue refreshes it; the refresh token never leaves.
-        TouchQueAPIError invalid_grant: the member has not connected it (or disconnected, or left)."""
+        what the member granted. Touchque refreshes it; the refresh token never leaves.
+        TouchqueAPIException invalid_grant: the member has not connected it (or disconnected, or left)."""
         data = self._post('/sso/token', {
             'grant_type': _TOKEN_EXCHANGE_GRANT, 'subject_token': subject_token, 'subject_token_type': _ACCESS_TOKEN_TYPE,
             'requested_token_type': _CONNECTION_TOKEN_TYPE, 'connection': connection, 'scope': scope,
@@ -198,7 +198,7 @@ class TouchQueOrgAgent:
     def ask_to_open_shared_account(self, account: str, login_hint: str, message: Optional[str] = None) -> Dict[str, Any]:
         """Asks to open a shared account (its key, from Organization -> AI agents -> Access) for a member:
         ``{'ask_id', 'open_url', 'status', 'expires_in'}``. The member opens ``open_url`` in the browser
-        where their TouchQue extension is paired; their phone approves with this agent named and the
+        where their Touchque extension is paired; their phone approves with this agent named and the
         extension signs in there. The agent never sees the password. ``message`` (at most 64
         characters) is shown to the member marked unverified."""
         return self._post('/sso/agents/shared-accounts/asks', {'account': account, 'login_hint': login_hint, 'binding_message': message}, False)
@@ -232,22 +232,22 @@ class TouchQueOrgAgent:
 
     def wait_for_member(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """The member's answer (polling at the interval, slower when asked): the
-        token once they approve; TouchQueAPIException access_denied or
-        expired_token otherwise, TouchQueTimeoutException after it expired."""
+        token once they approve; TouchqueAPIException access_denied or
+        expired_token otherwise, TouchqueTimeoutException after it expired."""
         interval = max(1, int(request.get('interval', 5)))
         deadline = time.time() + request.get('expires_in', 300) + 5
         while time.time() < deadline:
             time.sleep(interval)
             try:
                 return self._token_of(self._post('/sso/token', {'grant_type': _CIBA_GRANT, 'auth_req_id': request['auth_req_id']}, True))
-            except TouchQueAPIException as e:
+            except TouchqueAPIException as e:
                 if e.code == 'authorization_pending':
                     continue
                 if e.code == 'slow_down':
                     interval += 5
                     continue
                 raise
-        raise TouchQueTimeoutException('The member did not answer in time')
+        raise TouchqueTimeoutException('The member did not answer in time')
 
     def authorization(self, method: str, url: str, resource: Optional[str] = None, scope: Optional[str] = None) -> Dict[str, str]:
         """The two headers for one call to the app: Authorization: DPoP <token> and its proof."""

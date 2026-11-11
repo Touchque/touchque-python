@@ -1,9 +1,9 @@
-"""A code typed back on the phone (login.request(reply=...)) against the shared fake TouchQue API,
+"""A code typed back on the phone (login.request(reply=...)) against the shared fake Touchque API,
 which seals it like the phone does: it opens only with the one-time key, for that request."""
 import json
 import urllib.request
 
-from touchque import Config, TouchQue, new_code_reply_key, open_code_reply
+from touchque import Config, Touchque, new_code_reply_key, open_code_reply
 from .fake_api import fake_api  # noqa: F401 (fixture)
 
 
@@ -15,7 +15,7 @@ def _post(fake_api, path, body):
 
 def test_the_typed_code_opens_only_with_the_one_time_key_for_that_request(fake_api):
     fake_api.link('ayse@acme.com')
-    tq = TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
+    tq = Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
     key = new_code_reply_key()
     sent = tq.login.request('ayse@acme.com', reply={'kind': 'code', 'key': key['public_key'], 'channel': 'sms', 'target': '+**********26'})
     assert 'reply' not in tq.login.status(sent['requestId'])

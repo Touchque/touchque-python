@@ -1,5 +1,5 @@
 """AI agents in the Python SDK: management calls send what the shared vectors
-(fixtures/agent-vectors.json) say, and TouchQueAgent signs in with its own key
+(fixtures/agent-vectors.json) say, and TouchqueAgent signs in with its own key
 against the shared fake API, which checks the private_key_jwt assertion and
 the DPoP proofs like the real API."""
 import hashlib
@@ -10,16 +10,16 @@ from urllib.parse import quote
 
 import pytest
 
-from touchque import Config, TouchQue, TouchQueAgent, generate_agent_key, jwk_thumbprint
-from touchque.exceptions import TouchQueAPIException, TouchQueConfigException
+from touchque import Config, Touchque, TouchqueAgent, generate_agent_key, jwk_thumbprint
+from touchque.exceptions import TouchqueAPIException, TouchqueConfigException
 from .fake_api import fake_api  # noqa: F401 (fixture)
 
 with open(os.path.join(os.path.dirname(__file__), '..', 'fixtures', 'agent-vectors.json'), encoding='utf-8') as f:
     VECTORS = json.load(f)
 
 
-def client_for(api) -> TouchQue:
-    return TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=api.base_url))
+def client_for(api) -> Touchque:
+    return Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url=api.base_url))
 
 
 @pytest.mark.parametrize('v', VECTORS['thumbprints'], ids=lambda v: v['jwk']['crv'])
@@ -81,7 +81,7 @@ def test_management_call_vectors(fake_api):
         if 'body' in want:
             assert call['body'] == want['body'], v['name']
 
-    with pytest.raises(TouchQueConfigException):
+    with pytest.raises(TouchqueConfigException):
         ag.create('x', ['LOGIN'], public_key=k1['private_jwk'])
 
 
@@ -91,7 +91,7 @@ def test_agent_signs_in_with_its_own_key(fake_api):
         keys = generate_agent_key(alg)
         created = tq.agents.create(f'agent {alg}', ['LOGIN'], public_key=keys['public_jwk'])
         for private_key in (keys['private_jwk'], json.dumps(keys['private_jwk'])):
-            me = TouchQueAgent(agent_id=created['id'], private_key=private_key, base_url=fake_api.base_url).me()
+            me = TouchqueAgent(agent_id=created['id'], private_key=private_key, base_url=fake_api.base_url).me()
             assert me['agent']['id'] == created['id']
             assert me['scope'] == 'agent:read approvals:request approvals:read vault:read'
     token_calls = [c for c in fake_api.calls() if c['path'] == '/agents/token']
@@ -102,14 +102,14 @@ def test_token_vault(fake_api):
     tq = client_for(fake_api)
     keys = generate_agent_key()
     created = tq.agents.create('calendar', ['LOGIN'], public_key=keys['public_jwk'])
-    agent = TouchQueAgent(agent_id=created['id'], private_key=keys['private_jwk'], base_url=fake_api.base_url)
+    agent = TouchqueAgent(agent_id=created['id'], private_key=keys['private_jwk'], base_url=fake_api.base_url)
     conn = tq.agents.vault.put_connection('google', 'google', 'acme.apps.googleusercontent.com', client_secret='g-secret', agent_ids=[created['id']])
     assert conn['hasClientSecret'] and conn['agentIds'] == [created['id']]
     tq.agents.vault.deposit('google', 'jane@example.com', 'ya29.jane', refresh_token='1//jane', expires_in=3599, scope='calendar.readonly')
     assert 'ya29' not in str(tq.agents.vault.list_accounts('jane@example.com'))
     got = agent.get_connection_token('jane@example.com', 'google')
     assert got == {'access_token': 'ya29.jane', 'token_type': 'Bearer', 'expires_in': 3599, 'scope': 'calendar.readonly', 'connection': 'google'}
-    with pytest.raises(TouchQueAPIException) as e:
+    with pytest.raises(TouchqueAPIException) as e:
         agent.get_connection_token('john@example.com', 'google')
     assert e.value.code == 'not_connected'
     tq.agents.vault.remove_account('google', 'jane@example.com')
@@ -120,7 +120,7 @@ def test_token_is_reused(fake_api):
     tq = client_for(fake_api)
     keys = generate_agent_key()
     created = tq.agents.create('reuse', ['LOGIN'], public_key=keys['public_jwk'])
-    agent = TouchQueAgent(agent_id=created['id'], private_key=keys['private_jwk'], base_url=fake_api.base_url)
+    agent = TouchqueAgent(agent_id=created['id'], private_key=keys['private_jwk'], base_url=fake_api.base_url)
     agent.me()
     agent.me()
     assert len([c for c in fake_api.calls() if c['path'] == '/agents/token']) == 1
@@ -130,24 +130,24 @@ def test_refusals_carry_the_reason(fake_api):
     tq = client_for(fake_api)
     keys = generate_agent_key()
     created = tq.agents.create('refused', ['LOGIN'], public_key=keys['public_jwk'])
-    agent = TouchQueAgent(agent_id=created['id'], private_key=keys['private_jwk'], base_url=fake_api.base_url)
+    agent = TouchqueAgent(agent_id=created['id'], private_key=keys['private_jwk'], base_url=fake_api.base_url)
     agent.me()
     tq.agents.suspend(created['id'], 'looping')
-    with pytest.raises(TouchQueAPIException) as blocked:
+    with pytest.raises(TouchqueAPIException) as blocked:
         agent.me()
     assert blocked.value.status == 403 and blocked.value.code == 'agent_blocked' and blocked.value.reason == 'suspended'
-    with pytest.raises(TouchQueAPIException) as fresh:
-        TouchQueAgent(agent_id=created['id'], private_key=keys['private_jwk'], base_url=fake_api.base_url).me()
+    with pytest.raises(TouchqueAPIException) as fresh:
+        TouchqueAgent(agent_id=created['id'], private_key=keys['private_jwk'], base_url=fake_api.base_url).me()
     assert fresh.value.code == 'unauthorized_client' and fresh.value.reason == 'suspended'
     tq.agents.resume(created['id'])
 
     stranger = generate_agent_key()
-    with pytest.raises(TouchQueAPIException) as spoof:
-        TouchQueAgent(agent_id=created['id'], private_key=stranger['private_jwk'], kid=keys['public_jwk']['kid'], base_url=fake_api.base_url).me()
+    with pytest.raises(TouchqueAPIException) as spoof:
+        TouchqueAgent(agent_id=created['id'], private_key=stranger['private_jwk'], kid=keys['public_jwk']['kid'], base_url=fake_api.base_url).me()
     assert spoof.value.status == 401 and spoof.value.code == 'invalid_client'
 
     tq.agents.set_kill_switch(True, 'incident')
-    with pytest.raises(TouchQueAPIException) as paused:
+    with pytest.raises(TouchqueAPIException) as paused:
         agent.me()
     assert paused.value.reason == 'workspace_paused'
     tq.agents.set_kill_switch(False)
@@ -156,18 +156,18 @@ def test_refusals_carry_the_reason(fake_api):
 
 def test_configuration_errors():
     key = generate_agent_key()['private_jwk']
-    with pytest.raises(TouchQueConfigException):
-        TouchQueAgent(agent_id='nope', private_key=key)
-    with pytest.raises(TouchQueConfigException):
-        TouchQueAgent(agent_id='agt_abcdefghijkmnpqrstuv', private_key='not a key')
-    with pytest.raises(TouchQueConfigException):
-        TouchQueAgent(agent_id='agt_abcdefghijkmnpqrstuv', private_key=key, base_url='http://api.example.com')
+    with pytest.raises(TouchqueConfigException):
+        TouchqueAgent(agent_id='nope', private_key=key)
+    with pytest.raises(TouchqueConfigException):
+        TouchqueAgent(agent_id='agt_abcdefghijkmnpqrstuv', private_key='not a key')
+    with pytest.raises(TouchqueConfigException):
+        TouchqueAgent(agent_id='agt_abcdefghijkmnpqrstuv', private_key=key, base_url='http://api.example.com')
 
 
 # ── approvals ─────────────────────────────────────────────────────────────────
 
 from touchque import (  # noqa: E402
-    TouchQueApprovalError, TouchQueApprovalMismatchError, matches_authorization_details, verify_approval_token_with,
+    TouchqueApprovalError, TouchqueApprovalMismatchError, matches_authorization_details, verify_approval_token_with,
 )
 
 TOKEN = VECTORS['approvalToken']
@@ -182,20 +182,20 @@ def test_approval_token_vectors():
     own = {'audience': TOKEN['audience']}
     for bad, kwargs in ((TOKEN['tampered'], own), (TOKEN['wrongType'], own), (TOKEN['token'], {'audience': 'touchque:workspace:other'}),
                         (head_and_body + '.é', own), (head_and_body + '.a', own)):
-        with pytest.raises(TouchQueApprovalMismatchError):
+        with pytest.raises(TouchqueApprovalMismatchError):
             verify_approval_token_with(bad, TOKEN['jwks'], now=at, **kwargs)
-    with pytest.raises(TouchQueApprovalMismatchError, match='expired'):
+    with pytest.raises(TouchqueApprovalMismatchError, match='expired'):
         verify_approval_token_with(TOKEN['token'], TOKEN['jwks'], now=TOKEN['claims']['exp'] + 60, **own)
-    with pytest.raises(TouchQueApprovalMismatchError, match='another workspace'):
+    with pytest.raises(TouchqueApprovalMismatchError, match='another workspace'):
         verify_approval_token_with(TOKEN['token'], TOKEN['jwks'], audience='touchque:workspace:other', now=at)
 
 
 def test_approval_token_audience_is_required():
     at = TOKEN['verifyAt']
     for audience in (None, ''):
-        with pytest.raises(TouchQueApprovalMismatchError, match='audience is required'):
+        with pytest.raises(TouchqueApprovalMismatchError, match='audience is required'):
             verify_approval_token_with(TOKEN['token'], TOKEN['jwks'], audience=audience, now=at)
-    with pytest.raises(TouchQueApprovalMismatchError, match='names no workspace'):
+    with pytest.raises(TouchqueApprovalMismatchError, match='names no workspace'):
         verify_approval_token_with(TOKEN['noAudience']['token'], TOKEN['noAudience']['jwks'], audience=TOKEN['audience'], now=at)
 
 
@@ -217,7 +217,7 @@ def test_ask_wait_redeem(fake_api):
     tq.action_types.define('PAY_INVOICE', critical=False)
     keys = generate_agent_key()
     created = tq.agents.create('Invoice bot', ['PAY_INVOICE'], public_key=keys['public_jwk'])
-    agent = TouchQueAgent(agent_id=created['id'], private_key=keys['private_jwk'], base_url=fake_api.base_url)
+    agent = TouchqueAgent(agent_id=created['id'], private_key=keys['private_jwk'], base_url=fake_api.base_url)
 
     ask = agent.request_approval(user, 'PAY_INVOICE', [PAYMENT], reason='October rent')
     assert ask['status'] == 'pending' and ask['challengeCode'] == '47'
@@ -228,24 +228,24 @@ def test_ask_wait_redeem(fake_api):
     assert tq.agents.approval_audience() == 'touchque:workspace:fake-workspace'
     claims = tq.agents.verify_approval_token(token, user=user, authorization_details=PAYMENT)
     assert claims['act']['sub'] == created['id']
-    with pytest.raises(TouchQueApprovalMismatchError, match='another workspace'):
+    with pytest.raises(TouchqueApprovalMismatchError, match='another workspace'):
         tq.agents.verify_approval_token(token, audience='touchque:workspace:other')
-    with pytest.raises(TouchQueApprovalMismatchError):
+    with pytest.raises(TouchqueApprovalMismatchError):
         tq.agents.redeem_approval(token, authorization_details=dict(PAYMENT, instructedAmount={'currency': 'TRY', 'amount': '5000.00'}))
     approval = tq.agents.redeem_approval(token, user=user, type='PAY_INVOICE',
                                          authorization_details={'type': 'payment_initiation', 'instructedAmount': {'currency': 'try', 'amount': '500'}})
     assert approval['id'] == ask['approvalId'] and approval['agent']['id'] == created['id']
-    with pytest.raises(TouchQueAPIException) as again:
+    with pytest.raises(TouchqueAPIException) as again:
         tq.agents.redeem_approval(token)
     assert again.value.code == 'already_redeemed'
 
     ask2 = agent.request_approval(user, 'PAY_INVOICE', [PAYMENT], presence='background')
     assert 'challengeCode' not in ask2
     _post(fake_api, '/__test/reject', {'id': ask2['approvalId']})
-    with pytest.raises(TouchQueApprovalError) as rejected:
+    with pytest.raises(TouchqueApprovalError) as rejected:
         agent.wait_for_approval(ask2['approvalId'], interval=0.5)
     assert rejected.value.status == 'rejected'
-    with pytest.raises(TouchQueAPIException) as refused:
+    with pytest.raises(TouchqueAPIException) as refused:
         agent.request_approval(user, 'SEND_MONEY', [PAYMENT])
     assert refused.value.code == 'type_not_allowed'
 
@@ -269,7 +269,7 @@ def test_mandates(fake_api):
     tq.action_types.define('PAY_INVOICE', critical=False)
     keys = generate_agent_key()
     created = tq.agents.create('Mandate bot', ['PAY_INVOICE'], public_key=keys['public_jwk'])
-    agent = TouchQueAgent(agent_id=created['id'], private_key=keys['private_jwk'], base_url=fake_api.base_url)
+    agent = TouchqueAgent(agent_id=created['id'], private_key=keys['private_jwk'], base_url=fake_api.base_url)
     mandate = agent.request_mandate(user, 'PAY_INVOICE', 2, {'currency': 'TRY', 'amount': '1000'}, recipients=[PAYMENT['creditorAccount']['iban']], valid_for=3600)
     assert mandate['status'] == 'pending' and mandate['challengeCode'] == '47'
     with urllib.request.urlopen(fake_api.base_url + '/__test/requests') as resp:
@@ -280,7 +280,7 @@ def test_mandates(fake_api):
     assert used['status'] == 'approved' and used['mandate']['usedCount'] == 1
     assert [m['mandateId'] for m in tq.agents.list_mandates(created['id'], user=user)] == [mandate['mandateId']]
     assert tq.agents.revoke_mandate(created['id'], mandate['mandateId'])['status'] == 'revoked'
-    with pytest.raises(TouchQueAPIException) as refused:
+    with pytest.raises(TouchqueAPIException) as refused:
         agent.request_approval(user, 'PAY_INVOICE', [PAYMENT], mandate_id=mandate['mandateId'])
     assert refused.value.code == 'mandate_revoked'
     assert agent.revoke_mandate(mandate['mandateId'])['status'] == 'revoked'

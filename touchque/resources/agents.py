@@ -4,14 +4,14 @@ from urllib.parse import quote
 import time
 
 from ..approval_token import assert_approval_matches, decode_approval_token, verify_approval_token_with
-from ..exceptions import TouchQueApprovalMismatchError, TouchQueConfigException
+from ..exceptions import TouchqueApprovalMismatchError, TouchqueConfigException
 from ..http_client import HttpClient
 
 
 def _public_only(jwk: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """Refuses a private key before it leaves this process."""
     if isinstance(jwk, dict) and 'd' in jwk:
-        raise TouchQueConfigException(
+        raise TouchqueConfigException(
             "Pass the agent's PUBLIC key: this one has private parts (d). "
             'The private key must stay where the agent runs.')
     return jwk
@@ -23,8 +23,8 @@ def _id(value: str) -> str:
 
 class AgentVault:
     """The token vault for your agents (``client.agents.vault``): after your own OAuth flow with a
-    person, deposit their tokens; TouchQue keeps them sealed and refreshes them, and the agents a
-    connection names get a short-lived access token (``TouchQueAgent.get_connection_token``),
+    person, deposit their tokens; Touchque keeps them sealed and refreshes them, and the agents a
+    connection names get a short-lived access token (``TouchqueAgent.get_connection_token``),
     never the refresh token."""
 
     def __init__(self, http: HttpClient):
@@ -70,7 +70,7 @@ class Agents:
     agent with its PUBLIC key, give it an accountable owner and the action
     types it may ask approvals for, suspend, revoke or stop every agent at
     once. The agent itself never gets your API key: it signs in with its own
-    key (``TouchQueAgent``).
+    key (``TouchqueAgent``).
 
         keys = generate_agent_key()                       # where the agent runs
         agent = client.agents.create('Invoice bot', ['PAY_INVOICE'], public_key=keys['public_jwk'])
@@ -88,9 +88,9 @@ class Agents:
                         authorization_details: Any = None) -> Dict[str, Any]:
         """Uses an agent's approval exactly once, right before you execute:
         checks your expectations against the token first (nothing is used on a
-        mismatch), then TouchQue checks the token and marks it used, and the
-        answer is checked again. Raises TouchQueApprovalMismatchError or a
-        TouchQueAPIException (``already_redeemed``, ``token_expired``...)."""
+        mismatch), then Touchque checks the token and marks it used, and the
+        answer is checked again. Raises TouchqueApprovalMismatchError or a
+        TouchqueAPIException (``already_redeemed``, ``token_expired``...)."""
         expect = {'user': user, 'type': type, 'authorization_details': authorization_details}
         assert_approval_matches(decode_approval_token(token)['claims'], **expect)
         approval = self._http.post('/agents/approvals/redeem', {'token': token})['approval']
@@ -104,12 +104,12 @@ class Agents:
         if not self._audience:
             audience = (self._http.get('/agents/approval-audience') or {}).get('audience')
             if not isinstance(audience, str) or not audience:
-                raise TouchQueApprovalMismatchError("Touchque did not name this workspace's approval audience")
+                raise TouchqueApprovalMismatchError("Touchque did not name this workspace's approval audience")
             self._audience = audience
         return self._audience
 
     def verify_approval_token(self, token: str, audience: Optional[str] = None, **expect: Any) -> Dict[str, Any]:
-        """Verifies an approval token offline (TouchQue's published keys, expiry,
+        """Verifies an approval token offline (Touchque's published keys, expiry,
         ``aud``, ``user`` / ``type`` / ``authorization_details``). ``aud`` must be
         this workspace's: ``audience`` defaults to ``approval_audience()``, and a
         token without aud or for another workspace is refused. It does not make
@@ -119,7 +119,7 @@ class Agents:
             self._jwks, self._jwks_at = self._http.get('/agents/jwks.json'), time.time()
         try:
             return verify_approval_token_with(token, self._jwks, audience=audience, **expect)
-        except TouchQueApprovalMismatchError as exc:
+        except TouchqueApprovalMismatchError as exc:
             if 'unknown key' not in str(exc):
                 raise
             self._jwks, self._jwks_at = self._http.get('/agents/jwks.json'), time.time()

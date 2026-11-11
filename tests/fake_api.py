@@ -1,4 +1,4 @@
-"""Spawns the shared Node fake TouchQue API (testing/fake-touchque-api.mjs)
+"""Spawns the shared Node fake Touchque API (testing/fake-touchque-api.mjs)
 for contract tests: verifies this SDK's requests are signed exactly like the
 real backend expects, using a real HTTP round trip (not mocks)."""
 import json
@@ -63,7 +63,7 @@ class FakeApi:
         self._call('/__test/recovery', {'id': id, 'to': to})
 
     def approve_version(self, slug: str, number: int):
-        """TouchQue Actions: the dashboard's phone approval of a pending version."""
+        """Touchque Actions: the dashboard's phone approval of a pending version."""
         self._call('/__test/approve-version', {'slug': slug, 'number': number})
 
     def calls(self):

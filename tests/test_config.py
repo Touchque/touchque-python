@@ -1,6 +1,6 @@
 import pytest
 from touchque.config import Config
-from touchque.exceptions import TouchQueConfigException
+from touchque.exceptions import TouchqueConfigException
 
 
 def test_valid_config_is_accepted():
@@ -11,7 +11,7 @@ def test_valid_config_is_accepted():
 
 
 def test_apikey_not_starting_with_tq_raises():
-    with pytest.raises(TouchQueConfigException):
+    with pytest.raises(TouchqueConfigException):
         Config(api_key="wrong_prefix", api_secret="shh")
 
 
@@ -22,7 +22,7 @@ def test_custom_base_url_and_timeout_are_honored_and_trailing_slash_stripped():
 
 
 def test_refuses_plaintext_http_to_a_non_localhost_host():
-    with pytest.raises(TouchQueConfigException):
+    with pytest.raises(TouchqueConfigException):
         Config(api_key="tq_auth_x", api_secret="shh", base_url="http://api.example.com")
 
 
@@ -32,5 +32,5 @@ def test_allows_plaintext_http_only_for_loopback():
 
 
 def test_rejects_a_non_http_scheme():
-    with pytest.raises(TouchQueConfigException):
+    with pytest.raises(TouchqueConfigException):
         Config(api_key="tq_auth_x", api_secret="shh", base_url="ftp://api.touchque.com")

@@ -1,6 +1,6 @@
 """
 A small in-memory fixed-window rate limiter for the relay handler's pre-auth
-routes. It protects your own server (and your TouchQue quota) from scripted
+routes. It protects your own server (and your Touchque quota) from scripted
 abuse of routes anyone on the internet can call. It is per process: behind
 several workers or instances each keeps its own counters, which still caps
 abuse per process. Put your own shared limiter in front of the relay if you

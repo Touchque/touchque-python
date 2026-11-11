@@ -1,4 +1,4 @@
-"""Silent sign-ins against the shared fake TouchQue API: the risk resource,
+"""Silent sign-ins against the shared fake Touchque API: the risk resource,
 browser_proof on login requests, the guard's silent_sign_in option and the
 relay's POST /login. Same scenarios as the Node SDK's silentSignIn tests."""
 from unittest.mock import Mock
@@ -6,18 +6,18 @@ from unittest.mock import Mock
 import pytest
 
 from touchque import (
-    BROWSER_HEADER, Config, RelayHandler, TouchQue, TouchQueAPIException, TouchQueNetworkException,
+    BROWSER_HEADER, Config, RelayHandler, Touchque, TouchqueAPIException, TouchqueNetworkException,
     silent_input_from_headers,
 )
-from touchque.exceptions import TouchQueConfigException
+from touchque.exceptions import TouchqueConfigException
 from touchque.guard import run_guard
 from .fake_api import fake_api  # noqa: F401 (fixture)
 from .silent_vectors import PROOF, THUMBPRINT
 SILENT_CODES = ['known_browser', 'recent_approval', 'same_phone', 'familiar_network', 'no_risk_signal']
 
 
-def client_for(api) -> TouchQue:
-    return TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=api.base_url))
+def client_for(api) -> Touchque:
+    return Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url=api.base_url))
 
 
 @pytest.fixture
@@ -113,9 +113,9 @@ def test_a_provisional_approval_during_a_call_does_not_make_the_browser_known(ap
 
 
 def test_risk_methods_need_the_user():
-    tq = TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url='http://127.0.0.1:9'))
+    tq = Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url='http://127.0.0.1:9'))
     for call in (lambda: tq.risk.check(''), lambda: tq.risk.browsers(''), lambda: tq.risk.forget_browsers('')):
-        with pytest.raises(TouchQueConfigException):
+        with pytest.raises(TouchqueConfigException):
             call()
 
 
@@ -179,9 +179,9 @@ def test_guard_a_critical_action_always_asks_with_number_matching(api):
 
 
 @pytest.mark.parametrize('failure', [
-    TouchQueNetworkException('network down'),
-    TouchQueAPIException('not found', status=404, code='not_found'),
-    TouchQueAPIException('boom', status=500),
+    TouchqueNetworkException('network down'),
+    TouchqueAPIException('not found', status=404, code='not_found'),
+    TouchqueAPIException('boom', status=500),
     ValueError('unexpected'),
 ])
 def test_guard_fails_closed_any_error_in_the_check_starts_the_usual_push(api, failure):
@@ -251,14 +251,14 @@ def test_relay_login_silent_success_with_via_silent_a_new_browser_gets_the_push_
     handler = RelayHandler(client_for(api), get_user_id=lambda req: None, get_login_user=lambda req: 'jane@acme.com',
                            rate_limit=False, silent_sign_in=True,
                            on_authenticated=lambda req, resp, info: seen.append(info))
-    pushed = relay_login(handler, {'X-TouchQue-Browser': PROOF})
+    pushed = relay_login(handler, {'X-Touchque-Browser': PROOF})
     assert pushed.status == 202
     assert api.calls()[-1]['path'] == '/login/request'
     assert api.calls()[-1]['body']['browserProof'] == PROOF
     assert seen == []
 
     api.opts(silent=True)
-    silent = relay_login(handler, {'X-TouchQue-Browser': PROOF})
+    silent = relay_login(handler, {'X-Touchque-Browser': PROOF})
     assert silent.status == 200
     assert silent.body == {'status': 'success', 'requestId': 'silent',
                            'assurance': {'phishingResistant': False, 'method': 'silent'}}
@@ -270,7 +270,7 @@ def test_relay_login_without_silent_sign_in_ignores_the_header(api):
     api.opts(silent=True)
     handler = RelayHandler(client_for(api), get_user_id=lambda req: None, get_login_user=lambda req: 'jane@acme.com',
                            rate_limit=False)
-    res = relay_login(handler, {'X-TouchQue-Browser': PROOF})
+    res = relay_login(handler, {'X-Touchque-Browser': PROOF})
     assert res.status == 202
     assert '/risk/check' not in api.paths()
     assert 'browserProof' not in api.calls()[-1]['body']

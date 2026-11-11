@@ -1,11 +1,11 @@
-"""For an MCP server whose authorization server is TouchQue SSO (Organization
+"""For an MCP server whose authorization server is Touchque SSO (Organization
 → MCP servers in the dashboard; issuer https://sso.touchque.com/mcp):
 
 - ``protected_resource_metadata()`` is its RFC 9728 document, served at the
-  paths ``metadata_paths()`` gives, so MCP clients find TouchQue and ask for a
+  paths ``metadata_paths()`` gives, so MCP clients find Touchque and ask for a
   token for exactly this server;
 - ``verify(method, url, headers)`` checks a request's token: signed by
-  TouchQue (its JWKS), this issuer, audience = this server's URL (RFC 8707),
+  Touchque (its JWKS), this issuer, audience = this server's URL (RFC 8707),
   not expired, and for a DPoP-bound token a fresh proof for this request;
   ``McpAuthError`` carries the status (401, 403) and the WWW-Authenticate
   header to send;
@@ -29,7 +29,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from .exceptions import TouchQueConfigException
+from .exceptions import TouchqueConfigException
 
 __all__ = ['McpAuth', 'McpAuthError']
 
@@ -107,7 +107,7 @@ class McpAuth:
     def __init__(self, issuer: str, resource: str, tools: Optional[Dict[str, str]] = None,
                  resource_name: Optional[str] = None, clock_skew: int = 60):
         if not issuer or not resource:
-            raise TouchQueConfigException("McpAuth needs issuer (TouchQue SSO's MCP issuer) and resource (this server's URL)")
+            raise TouchqueConfigException("McpAuth needs issuer (Touchque SSO's MCP issuer) and resource (this server's URL)")
         self.issuer = issuer.rstrip('/')
         self.resource = resource
         self.tools = dict(tools or {})
@@ -170,7 +170,7 @@ class McpAuth:
         except ValueError:
             raise self._fail(401, 'invalid_token', 'The token is malformed')
         if head.get('typ') != 'at+jwt' or head.get('alg') not in ('RS256', 'ES256'):
-            raise self._fail(401, 'invalid_token', 'Not a TouchQue access token')
+            raise self._fail(401, 'invalid_token', 'Not a Touchque access token')
         try:
             key = self._key_for(str(head.get('kid', '')))
         except Exception:
@@ -206,7 +206,7 @@ class McpAuth:
         lower = {k.lower(): v for k, v in headers.items()}
         scheme, _, token = str(lower.get('authorization', '')).strip().partition(' ')
         if scheme.lower() not in ('bearer', 'dpop') or token.count('.') != 2:
-            raise self._fail(401, 'missing_token', 'A TouchQue access token is required')
+            raise self._fail(401, 'missing_token', 'A Touchque access token is required')
         claims = self._claims(token.strip())
         jkt = (claims.get('cnf') or {}).get('jkt')
         if jkt:

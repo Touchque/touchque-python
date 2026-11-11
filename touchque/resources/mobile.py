@@ -1,12 +1,12 @@
 """
-TouchQue Mobile SDK, your backend's side: your own iOS/Android app is the
-approver of your users (white-label); they never install the TouchQue app.
+Touchque Mobile SDK, your backend's side: your own iOS/Android app is the
+approver of your users (white-label); they never install the Touchque app.
 
 1. A user signed in to your app turns approvals on: ``create_enrollment``
-   gives a one-time token; your app hands it to the SDK (``TouchQue.enroll``).
+   gives a one-time token; your app hands it to the SDK (``Touchque.enroll``).
 2. Ask for approvals as always (``login.request``, ``start``, guards...):
    they reach your app over the SDK's encrypted connection.
-3. TouchQue holds no push key of your app. For each request it sends you a
+3. Touchque holds no push key of your app. For each request it sends you a
    signed MOBILE_PUSH webhook: verify it (``webhook.verify``), then
    ``mobile_push_from_webhook(event)`` gives the APNs payload / FCM data to
    send with your own credentials.
@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from urllib.parse import quote
 
-from ..exceptions import TouchQueConfigException
+from ..exceptions import TouchqueConfigException
 from ..http_client import HttpClient
 
 
@@ -68,10 +68,10 @@ class Mobile:
     def create_enrollment(self, external_username: str, replace: bool = False,
                           ttl_seconds: Optional[int] = None) -> Dict[str, Any]:
         """A one-time enrollment token for a user you signed in. Whoever spends it becomes the
-        user's approver, so authenticate the user first. Raises TouchQueAPIException
+        user's approver, so authenticate the user first. Raises TouchqueAPIException
         ``already_enrolled`` (pass ``replace=True``) or ``account_frozen``."""
         if not external_username:
-            raise TouchQueConfigException('mobile.create_enrollment() needs the user (external_username)')
+            raise TouchqueConfigException('mobile.create_enrollment() needs the user (external_username)')
         body: Dict[str, Any] = {'externalUsername': external_username}
         if replace:
             body['replace'] = True
@@ -95,20 +95,20 @@ class Mobile:
 
     def get_device(self, device_id: str) -> Dict[str, Any]:
         if not device_id:
-            raise TouchQueConfigException('mobile.get_device() needs the device id')
+            raise TouchqueConfigException('mobile.get_device() needs the device id')
         return self._http.get('/mobile/devices/' + quote(device_id, safe=''))['device']
 
     def remove_device(self, device_id: str) -> Dict[str, Any]:
         """Stops a device from approving (the user has no approver until you enrol again)."""
         if not device_id:
-            raise TouchQueConfigException('mobile.remove_device() needs the device id')
+            raise TouchqueConfigException('mobile.remove_device() needs the device id')
         return self._http.delete('/mobile/devices/' + quote(device_id, safe=''))
 
     def test_push(self, device_id: str) -> Dict[str, Any]:
         """A harmless push to the device, the way a request would reach it: ``via`` 'touchque' (your key for
         its platform) or 'webhook' (MOBILE_PUSH, kind 'test'); ``ok``: APNs / FCM accepted it."""
         if not device_id:
-            raise TouchQueConfigException('mobile.test_push() needs the device id')
+            raise TouchqueConfigException('mobile.test_push() needs the device id')
         return self._http.post('/mobile/devices/' + quote(device_id, safe='') + '/test-push', {})
 
     def settings(self) -> Dict[str, Any]:
@@ -118,7 +118,7 @@ class Mobile:
         """Which apps may enrol, whether they must prove themselves, and your push keys: ``ios_app_ids``,
         ``android_packages``, ``android_certs`` ({package: [SHA-256 of its signing certificate]}),
         ``attestation`` ('off' | 'optional' | 'required'), ``enroll_ttl_seconds``,
-        ``apns`` ({keyId, teamId, topic, key: the .p8 text, production}; TouchQue then sends the iOS push
+        ``apns`` ({keyId, teamId, topic, key: the .p8 text, production}; Touchque then sends the iOS push
         itself) and ``fcm`` ({serviceAccount: the JSON}; the Android push). None removes a key; the keys
         are never shown back (``settings()['push']``)."""
         names = {'ios_app_ids': 'iosAppIds', 'android_packages': 'androidPackages', 'android_certs': 'androidCerts',
@@ -126,5 +126,5 @@ class Mobile:
                  'apns': 'apns', 'fcm': 'fcm'}
         unknown = set(changes) - set(names)
         if unknown:
-            raise TouchQueConfigException('mobile.update_settings(): unknown setting ' + ', '.join(sorted(unknown)))
+            raise TouchqueConfigException('mobile.update_settings(): unknown setting ' + ', '.join(sorted(unknown)))
         return self._http.put('/mobile/settings', {names[k]: v for k, v in changes.items()})['settings']

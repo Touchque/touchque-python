@@ -1,6 +1,6 @@
 """Safe Guard: the verifier against the shared vectors (fixtures/safe-guard-vectors.json, derived
 from the reference project and shared with every server SDK), and request / status / wait
-against the shared fake TouchQue API."""
+against the shared fake Touchque API."""
 import json
 import os
 import urllib.request
@@ -8,7 +8,7 @@ import urllib.request
 import pytest
 
 from touchque import (
-    Config, TouchQue, TouchQueConfigException, TouchQueRejectedException, safe_approval_message, safe_display_digest,
+    Config, Touchque, TouchqueConfigException, TouchqueRejectedException, safe_approval_message, safe_display_digest,
     safe_governance_hash, safe_schedule_call, safe_tx_hash, verify_safe_approval, with_safe_approvals,
 )
 from .fake_api import fake_api  # noqa: F401 (fixture)
@@ -54,11 +54,11 @@ def test_trailer_and_schedule_call():
 
 def test_a_transaction_that_is_not_one_raises():
     t = VECTORS['vectors'][0]['safeTx']
-    with pytest.raises(TouchQueConfigException):
+    with pytest.raises(TouchqueConfigException):
         safe_tx_hash({**t, 'tx': {**t['tx'], 'to': '0x1234'}})
-    with pytest.raises(TouchQueConfigException):
+    with pytest.raises(TouchqueConfigException):
         safe_tx_hash({**t, 'tx': {**t['tx'], 'operation': 2}})
-    with pytest.raises(TouchQueConfigException):
+    with pytest.raises(TouchqueConfigException):
         with_safe_approvals('0x', [])
 
 
@@ -71,7 +71,7 @@ def _post(fake_api, path, body):
 def test_request_wait_and_check_the_approval_here(fake_api):
     fake_api.link('treasurer@acme.com')
     v = BY_NAME['bybit_pattern']
-    tq = TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
+    tq = Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
     _post(fake_api, '/__test/opts', {'safeTxView': {'class': v['class'], 'flags': ['delegatecall'], 'safeTxHash': v['safeTxHash'], 'governanceHash': v['governanceHash'], 'purpose': v['purpose']}})
     safe_tx = {**v['safeTx'], 'chainId': 1, 'tx': {**v['safeTx']['tx'], 'safeTxGas': 45746, 'nonce': 42}}
     sent = tq.safe_guard.request('treasurer@acme.com', 'safe_payment', safe_tx, reference_id='tx-1')
@@ -95,5 +95,5 @@ def test_request_wait_and_check_the_approval_here(fake_api):
 
     again = tq.safe_guard.request('treasurer@acme.com', 'safe_payment', v['safeTx'])
     _post(fake_api, '/__test/reject', {'id': again['requestId']})
-    with pytest.raises(TouchQueRejectedException):
+    with pytest.raises(TouchqueRejectedException):
         tq.safe_guard.wait_for_approval(again['requestId'], poll_interval_ms=10)

@@ -1,7 +1,7 @@
-"""Safe Guard: a Safe transaction approved on the approver's phone for TouchQueSafeGuard (the
+"""Safe Guard: a Safe transaction approved on the approver's phone for TouchqueSafeGuard (the
 guard on your Safe). You send the raw transaction; the phone gets the raw fields only, decodes
 them itself, shows its own rows and signs, with a key only its biometrics unlock, a 105-byte
-approval of the hash it computed. TouchQue never holds a key that can approve.
+approval of the hash it computed. Touchque never holds a key that can approve.
 
 1. ``request(external_username, type, safe_tx)`` asks the phone (same pipeline as
    ``login.request``: risk engine, push limit, Vishing Shield, case code, always biometrics).
@@ -17,7 +17,7 @@ import time
 from typing import Any, Dict, Mapping, Optional
 from urllib.parse import quote
 
-from ..exceptions import TouchQueConfigException, TouchQueRejectedException, TouchQueTimeoutException
+from ..exceptions import TouchqueConfigException, TouchqueRejectedException, TouchqueTimeoutException
 from ..http_client import HttpClient
 
 _NUMBERS = ('value', 'safeTxGas', 'baseGas', 'gasPrice', 'nonce')
@@ -58,11 +58,11 @@ class SafeGuard:
             })
         """
         if not external_username:
-            raise TouchQueConfigException('safe_guard.request() needs external_username.')
+            raise TouchqueConfigException('safe_guard.request() needs external_username.')
         if not type:
-            raise TouchQueConfigException('safe_guard.request() needs type: an action type from your dashboard.')
+            raise TouchqueConfigException('safe_guard.request() needs type: an action type from your dashboard.')
         if not isinstance(safe_tx, Mapping) or not isinstance(safe_tx.get('tx'), Mapping):
-            raise TouchQueConfigException('safe_guard.request() needs safe_tx: {"chainId", "safe", "guard", "tx", "config", "approverIndex"}.')
+            raise TouchqueConfigException('safe_guard.request() needs safe_tx: {"chainId", "safe", "guard", "tx", "config", "approverIndex"}.')
         body: Dict[str, Any] = {'externalUsername': external_username, 'type': type, 'safeTx': _wire(safe_tx)}
         if reference_id:
             body['referenceId'] = reference_id
@@ -77,13 +77,13 @@ class SafeGuard:
     def status(self, request_id: str) -> Dict[str, Any]:
         """The request's status and, once approved, the approval (``safeTx['approval']``, 105 bytes hex)."""
         if not request_id:
-            raise TouchQueConfigException('safe_guard.status() needs a request_id.')
+            raise TouchqueConfigException('safe_guard.status() needs a request_id.')
         return self._http.get(f'/safe-guard/approvals/{quote(request_id, safe="")}')
 
     def wait_for_approval(self, request_id: str, timeout_ms: int = 300000, poll_interval_ms: int = 1500) -> Dict[str, Any]:
         """Polls until the phone approved and returns the status with the approval.
 
-        Raises ``TouchQueRejectedException`` when the person said no, ``TouchQueTimeoutException``
+        Raises ``TouchqueRejectedException`` when the person said no, ``TouchqueTimeoutException``
         when it expired or ``timeout_ms`` (default 5 minutes, the request's own life) ran out."""
         start = time.monotonic()
         while True:
@@ -91,9 +91,9 @@ class SafeGuard:
             if status.get('status') == 'CONFIRMED':
                 return status
             if status.get('status') == 'REJECTED':
-                raise TouchQueRejectedException(f'Request {request_id} was rejected by the user.')
+                raise TouchqueRejectedException(f'Request {request_id} was rejected by the user.')
             if status.get('status') == 'EXPIRED':
-                raise TouchQueTimeoutException(f'Request {request_id} expired before it was approved.')
+                raise TouchqueTimeoutException(f'Request {request_id} expired before it was approved.')
             if (time.monotonic() - start) * 1000 > timeout_ms:
-                raise TouchQueTimeoutException(f'Safe Guard approval timed out after {timeout_ms}ms')
+                raise TouchqueTimeoutException(f'Safe Guard approval timed out after {timeout_ms}ms')
             time.sleep(poll_interval_ms / 1000)

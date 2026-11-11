@@ -1,4 +1,4 @@
-"""An organization's AI agent on TouchQue SSO against the shared fake API's
+"""An organization's AI agent on Touchque SSO against the shared fake API's
 /sso/token: its own key or its platform's token, a DPoP proof, and calls to an
 app that checks the proof against the token's key."""
 import json
@@ -7,8 +7,8 @@ import urllib.request
 import pytest
 import requests
 
-from touchque import TouchQueOrgAgent, generate_agent_key
-from touchque.exceptions import TouchQueAPIException, TouchQueConfigException
+from touchque import TouchqueOrgAgent, generate_agent_key
+from touchque.exceptions import TouchqueAPIException, TouchqueConfigException
 from .fake_api import fake_api  # noqa: F401 (fixture)
 
 APP = 'tqapp_paymentsapi0000000000'
@@ -23,7 +23,7 @@ def test_own_key_token_and_calls(fake_api):
     keys = generate_agent_key()
     agent_id = 'oagt_abcdefghijkmnpqrstuv'
     _post(fake_api, '/__test/org-agent', {'agentId': agent_id, 'publicKey': keys['public_jwk'], 'audiences': [APP], 'scopes': ['invoices:read', 'payments:create']})
-    agent = TouchQueOrgAgent(agent_id=agent_id, private_key=keys['private_jwk'], issuer=fake_api.base_url)
+    agent = TouchqueOrgAgent(agent_id=agent_id, private_key=keys['private_jwk'], issuer=fake_api.base_url)
     token = agent.get_token(scope='invoices:read')
     assert token['token_type'] == 'DPoP' and token['expires_in'] == 300 and token['scope'] == 'invoices:read'
     assert agent.get_token(scope='invoices:read') is token
@@ -32,7 +32,7 @@ def test_own_key_token_and_calls(fake_api):
     headers = agent.authorization('GET', fake_api.base_url + '/__test/resource', scope='invoices:read')
     assert requests.get(fake_api.base_url + '/__test/resource', headers=headers).status_code == 200
     assert requests.get(fake_api.base_url + '/__test/resource', headers=headers).status_code == 401  # a proof is for one request
-    with pytest.raises(TouchQueAPIException) as refused:
+    with pytest.raises(TouchqueAPIException) as refused:
         agent.get_token(scope='payments:refund')
     assert refused.value.code == 'invalid_scope'
 
@@ -40,20 +40,20 @@ def test_own_key_token_and_calls(fake_api):
 def test_platform_token(fake_api):
     agent_id = 'oagt_bbbbbbbbbbbbbbbbbbbb'
     _post(fake_api, '/__test/org-agent', {'agentId': agent_id, 'workload': {'subject': 'repo:acme/payments:ref:refs/heads/main', 'audience': 'touchque'}, 'audiences': [APP], 'scopes': ['invoices:read']})
-    agent = TouchQueOrgAgent(agent_id=agent_id, issuer=fake_api.base_url,
+    agent = TouchqueOrgAgent(agent_id=agent_id, issuer=fake_api.base_url,
                              assertion=lambda: _post(fake_api, '/__test/workload-token', {'sub': 'repo:acme/payments:ref:refs/heads/main', 'aud': 'touchque'})['token'])
     assert agent.request('GET', fake_api.base_url + '/__test/resource').json()['via'] == 'workload'
-    wrong = TouchQueOrgAgent(agent_id=agent_id, issuer=fake_api.base_url,
+    wrong = TouchqueOrgAgent(agent_id=agent_id, issuer=fake_api.base_url,
                              assertion=lambda: _post(fake_api, '/__test/workload-token', {'sub': 'repo:evil/x', 'aud': 'touchque'})['token'])
-    with pytest.raises(TouchQueAPIException):
+    with pytest.raises(TouchqueAPIException):
         wrong.get_token()
 
 
 def test_configuration_mistakes():
-    with pytest.raises(TouchQueConfigException):
-        TouchQueOrgAgent(agent_id='agt_abcdefghijkmnpqrstuv', private_key=generate_agent_key()['private_jwk'])
-    with pytest.raises(TouchQueConfigException):
-        TouchQueOrgAgent(agent_id='oagt_abcdefghijkmnpqrstuv', issuer='http://sso.example.com', assertion=lambda: 'x')
+    with pytest.raises(TouchqueConfigException):
+        TouchqueOrgAgent(agent_id='agt_abcdefghijkmnpqrstuv', private_key=generate_agent_key()['private_jwk'])
+    with pytest.raises(TouchqueConfigException):
+        TouchqueOrgAgent(agent_id='oagt_abcdefghijkmnpqrstuv', issuer='http://sso.example.com', assertion=lambda: 'x')
 
 
 def test_for_a_member(fake_api):
@@ -61,7 +61,7 @@ def test_for_a_member(fake_api):
     keys = generate_agent_key()
     agent_id = 'oagt_cccccccccccccccccccc'
     _post(fake_api, '/__test/org-agent', {'agentId': agent_id, 'publicKey': keys['public_jwk'], 'audiences': [APP], 'scopes': ['payments:create'], 'delegation': ['token_exchange', 'ciba'], 'sharedAccounts': ['k3JInstagramAcme01']})
-    agent = TouchQueOrgAgent(agent_id=agent_id, private_key=keys['private_jwk'], issuer=fake_api.base_url)
+    agent = TouchqueOrgAgent(agent_id=agent_id, private_key=keys['private_jwk'], issuer=fake_api.base_url)
 
     def call(token):
         url = fake_api.base_url + '/__test/resource'
@@ -71,11 +71,11 @@ def test_for_a_member(fake_api):
     assert call(exchanged['access_token'])['sub'] == 'ada@acme.com'
     google = agent.get_connection_token('member:ada@acme.com', 'google', scope='email')
     assert google == {'access_token': 'ya29.ada@acme.com', 'token_type': 'Bearer', 'expires_in': 3599, 'scope': 'email', 'connection': 'google'}
-    with pytest.raises(TouchQueAPIException) as e:
+    with pytest.raises(TouchqueAPIException) as e:
         agent.get_connection_token('member:ada@acme.com', 'github')
     assert e.value.code == 'invalid_grant'
     # A shared account: the member's extension opens it; the agent learns only how it ended.
-    with pytest.raises(TouchQueAPIException) as e:
+    with pytest.raises(TouchqueAPIException) as e:
         agent.ask_to_open_shared_account('other', 'ada@acme.com')
     assert e.value.code == 'invalid_target'
     shared = agent.ask_to_open_shared_account('k3JInstagramAcme01', 'ada@acme.com', message='Post the launch photo')
@@ -91,6 +91,6 @@ def test_for_a_member(fake_api):
     assert call(approved['access_token'])['act'] == agent_id
     no = agent.ask_member('ada@acme.com')
     _post(fake_api, '/__test/ciba-answer', {'authReqId': no['auth_req_id'], 'approve': False})
-    with pytest.raises(TouchQueAPIException) as refused:
+    with pytest.raises(TouchqueAPIException) as refused:
         agent.wait_for_member(no)
     assert refused.value.code == 'access_denied'

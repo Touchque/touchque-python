@@ -15,7 +15,7 @@ from django.http import Http404  # noqa: E402
 from django.test import RequestFactory  # noqa: E402
 from django.urls import include, path, resolve  # noqa: E402
 
-from touchque import TouchQueAPIException  # noqa: E402
+from touchque import TouchqueAPIException  # noqa: E402
 from touchque.contrib.django import touchque_relay_urls  # noqa: E402
 from .fake_api import fake_api  # noqa: F401,E402
 from .relay_helpers import fake_tq, real_tq  # noqa: E402
@@ -89,7 +89,7 @@ def test_offline_disabled_403_delete_credential_and_errors():
     res = send('DELETE', '/touchque/passkey/credentials/cred_1', HTTP_X_USER='u@example.com')
     assert body(res) == {'deleted': True}
     tq.webauthn.delete_credential.assert_called_once_with('cred_1', external_username='u@example.com')
-    tq.webauthn.register_options.side_effect = TouchQueAPIException('internal', status=500)
+    tq.webauthn.register_options.side_effect = TouchqueAPIException('internal', status=500)
     res = send('POST', '/touchque/passkey/register/options', HTTP_X_USER='u@example.com')
     assert res.status_code == 502 and body(res) == {'error': 'relay_error'}
 

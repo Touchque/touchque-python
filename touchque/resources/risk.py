@@ -1,5 +1,5 @@
 """
-Silent sign-ins: ask TouchQue's risk engine whether a sign-in needs the phone
+Silent sign-ins: ask Touchque's risk engine whether a sign-in needs the phone
 at all, and manage the browsers it knows for a user.
 
 A browser becomes known when the user approves a request on the phone (or
@@ -10,7 +10,7 @@ the sign-in is new. ``risk.check`` sends nothing to the phone.
 """
 from typing import Any, Dict, List, Optional
 
-from ..exceptions import TouchQueConfigException
+from ..exceptions import TouchqueConfigException
 from ..http_client import HttpClient
 
 _ASSURANCE = ('high', 'normal', 'low')
@@ -49,7 +49,7 @@ def parse_risk_check(raw: Any) -> Dict[str, Any]:
 
 class Risk:
     """Silent sign-ins: should this sign-in ask the phone, and which browsers
-    TouchQue knows for a user."""
+    Touchque knows for a user."""
 
     def __init__(self, http: HttpClient):
         self._http = http
@@ -72,7 +72,7 @@ class Risk:
         Returns ``{'prompt', 'reasons', 'assurance', 'silentMode'}``. Skip the
         push only when ``prompt`` is ``False``; on any error, ask as usual::
 
-            browser_proof = request.headers.get('X-TouchQue-Browser')
+            browser_proof = request.headers.get('X-Touchque-Browser')
             risk = tq.risk.check(user, client_ip=ip, browser_proof=browser_proof)
             if risk['prompt'] is False:
                 return sign_in(user)  # known browser, nothing new
@@ -83,11 +83,11 @@ class Risk:
         :param client_ip: the end user's IP address, compared with the networks
             of the user's earlier approved sign-ins.
         :param browser_proof: the browser's device-bound key proof
-            (``X-TouchQue-Browser``), passed through untouched.
+            (``X-Touchque-Browser``), passed through untouched.
         :param max_age_seconds: your own limit on how long ago the last phone
             approval in this browser may be (integer, ``0`` = always ask).
-            TouchQue never goes beyond its own limit (7 days).
-        :param context: for your TouchQue Actions only (``event.context``).
+            Touchque never goes beyond its own limit (7 days).
+        :param context: for your Touchque Actions only (``event.context``).
         :param client_signals: the end user's page check from ``@touchque/web``
             (``startClientSignals().encode()``): software driving the browser is never silent.
         :param device_risk: the page's device report from ``@touchque/web``
@@ -95,7 +95,7 @@ class Risk:
         :param device_risk_request_id: the page's identification (``deviceRisk.identify()``), preferred.
         """
         if not external_username:
-            raise TouchQueConfigException('risk.check() needs the user (external_username)')
+            raise TouchqueConfigException('risk.check() needs the user (external_username)')
         payload: Dict[str, Any] = {'externalUsername': external_username}
         if type:
             payload['type'] = type
@@ -118,13 +118,13 @@ class Risk:
         return parse_risk_check(self._http.post('/risk/check', payload))
 
     def browsers(self, external_username: str) -> Dict[str, Any]:
-        """The browsers TouchQue knows for a user, for an "approved browsers"
+        """The browsers Touchque knows for a user, for an "approved browsers"
         list in your settings page: ``{'browsers': [{'thumbprint', 'label',
         'createdAt', 'lastMfaAt', 'lastMfaMethod', 'lastSeenAt',
         'lastSilentAt'}]}``. Pass a ``thumbprint`` to ``forget_browsers`` to
         forget that one."""
         if not external_username:
-            raise TouchQueConfigException('risk.browsers() needs the user (external_username)')
+            raise TouchqueConfigException('risk.browsers() needs the user (external_username)')
         res = self._http.get('/risk/browsers', {'externalUsername': external_username})
         browsers = res.get('browsers') if isinstance(res, dict) else None
         return {'browsers': browsers if isinstance(browsers, list) else []}
@@ -134,7 +134,7 @@ class Risk:
         their next sign-in asks the phone again. Call it after a password reset
         or when the user signs out everywhere. Returns ``{'forgotten': n}``."""
         if not external_username:
-            raise TouchQueConfigException('risk.forget_browsers() needs the user (external_username)')
+            raise TouchqueConfigException('risk.forget_browsers() needs the user (external_username)')
         payload: Dict[str, Any] = {'externalUsername': external_username}
         if thumbprint:
             payload['thumbprint'] = thumbprint

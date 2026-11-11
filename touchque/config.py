@@ -1,7 +1,7 @@
 import os
 from urllib.parse import urlparse
 
-from .exceptions import TouchQueConfigException
+from .exceptions import TouchqueConfigException
 
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 DEFAULT_BASE_URL = "https://api.touchque.com"
@@ -15,11 +15,11 @@ def _assert_safe_base_url(base_url: str) -> None:
     if parsed.scheme == "http" and (parsed.hostname or "").lower() in _LOCAL_HOSTS:
         return
     if parsed.scheme == "http":
-        raise TouchQueConfigException(
+        raise TouchqueConfigException(
             f'Refusing a plaintext http:// base_url for "{parsed.hostname}". '
             "The API key and request signature would be sent in the clear — use https://."
         )
-    raise TouchQueConfigException(f"base_url must be http(s): {base_url}")
+    raise TouchqueConfigException(f"base_url must be http(s): {base_url}")
 
 
 class Config:
@@ -40,11 +40,11 @@ class Config:
         base_url = base_url if base_url is not None else os.environ.get("TQ_API_URL", DEFAULT_BASE_URL)
 
         if not api_key or not api_secret:
-            raise TouchQueConfigException(
+            raise TouchqueConfigException(
                 "Set TQ_API_KEY and TQ_API_SECRET (or pass api_key=/api_secret=)."
             )
         if not api_key.startswith('tq_'):
-            raise TouchQueConfigException(
+            raise TouchqueConfigException(
                 'api_key must start with "tq_". Did you accidentally swap api_key and api_secret?'
             )
 

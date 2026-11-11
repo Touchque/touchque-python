@@ -1,6 +1,6 @@
-"""TouchQue Actions: your own code at points of the approval pipeline (before
+"""Touchque Actions: your own code at points of the approval pipeline (before
 the push is sent, the silent sign-in decision, after an approval, fraud
-reports, device and recovery events). TouchQue runs it in a sandbox; this
+reports, device and recovery events). Touchque runs it in a sandbox; this
 resource deploys, tests, replays and observes it::
 
     tq.actions.deploy(
@@ -16,7 +16,7 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
-from ..exceptions import TouchQueConfigException
+from ..exceptions import TouchqueConfigException
 from ..http_client import HttpClient
 
 _SLUG_RE = re.compile(r'^[a-z0-9][a-z0-9-]{1,62}$')
@@ -26,13 +26,13 @@ _TEMPLATE_RE = re.compile(r'^[a-z_]{1,64}$')
 
 def _slug_path(slug: str) -> str:
     if not isinstance(slug, str) or not _SLUG_RE.match(slug):
-        raise TouchQueConfigException('An Action slug is 2-63 lowercase letters, digits or - (e.g. "night-alert")')
+        raise TouchqueConfigException('An Action slug is 2-63 lowercase letters, digits or - (e.g. "night-alert")')
     return f'/actions/{slug}'
 
 
 def _secret_path(name: str) -> str:
     if not isinstance(name, str) or not _SECRET_RE.match(name):
-        raise TouchQueConfigException('A secret name is capital letters, digits or _ (e.g. SLACK_WEBHOOK_URL)')
+        raise TouchqueConfigException('A secret name is capital letters, digits or _ (e.g. SLACK_WEBHOOK_URL)')
     return f'/actions/secrets/{name}'
 
 
@@ -71,7 +71,7 @@ class ActionSecrets:
 
     def set(self, name: str, value: str) -> Dict[str, Any]:
         if not isinstance(value, str) or not value:
-            raise TouchQueConfigException('A secret value is a non-empty string')
+            raise TouchqueConfigException('A secret value is a non-empty string')
         return self._http.put(_secret_path(name), {'value': value})
 
     def list(self) -> List[Dict[str, Any]]:
@@ -84,7 +84,7 @@ class ActionSecrets:
 
 
 class Actions:
-    """TouchQue Actions management: deploy, roll back, test, dry run, logs,
+    """Touchque Actions management: deploy, roll back, test, dry run, logs,
     metrics, secrets and no-code templates."""
 
     def __init__(self, http: HttpClient):
@@ -113,7 +113,7 @@ class Actions:
         :param activate: ``False`` saves the version without making it live.
         """
         if code is None and template is None:
-            raise TouchQueConfigException('deploy() needs code or template')
+            raise TouchqueConfigException('deploy() needs code or template')
         body = _draft(trigger=trigger, code=code, template=template, secrets=secrets,
                       allowed_hosts=allowed_hosts, capabilities=capabilities)
         if name is not None:
@@ -139,7 +139,7 @@ class Actions:
     def version(self, slug: str, number: int) -> Dict[str, Any]:
         """One version, with its code."""
         if not isinstance(number, int):
-            raise TouchQueConfigException('version() needs a version number')
+            raise TouchqueConfigException('version() needs a version number')
         return self._http.get(f'{_slug_path(slug)}/versions/{number}')
 
     def update(self, slug: str, name: Optional[str] = None, enabled: Optional[bool] = None,
@@ -230,5 +230,5 @@ class Actions:
     def render_template(self, id: str, trigger: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """A template as plain code (to read, or to start a code Action from)."""
         if not isinstance(id, str) or not _TEMPLATE_RE.match(id):
-            raise TouchQueConfigException('Unknown template id')
+            raise TouchqueConfigException('Unknown template id')
         return self._http.post(f'/actions/templates/{id}/render', {'trigger': trigger, 'params': params or {}})

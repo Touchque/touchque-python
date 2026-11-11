@@ -1,17 +1,17 @@
-"""verify(on_challenge=...) against the shared fake TouchQue API: the number
+"""verify(on_challenge=...) against the shared fake Touchque API: the number
 reaches the caller before the wait (the callback approves, so verify() could
 not finish otherwise), and a callback that raises is logged while verify()
 keeps waiting."""
 import logging
 
-from touchque import Config, TouchQue
+from touchque import Config, Touchque
 from .fake_api import fake_api  # noqa: F401 (fixture)
 
 USER = 'jane@acme.com'
 
 
-def client_for(api) -> TouchQue:
-    return TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=api.base_url))
+def client_for(api) -> Touchque:
+    return Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url=api.base_url))
 
 
 def test_on_challenge_gets_the_number_before_the_wait(fake_api):

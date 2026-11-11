@@ -1,16 +1,16 @@
-"""Contract tests against the shared fake TouchQue API — a real HTTP round
+"""Contract tests against the shared fake Touchque API — a real HTTP round
 trip, so request signing is verified too (not just mocked). Same scenarios
 as the Node SDK's step-up tests."""
 import pytest
 
-from touchque import Config, TouchQue
-from touchque.exceptions import TouchQueConfigException
+from touchque import Config, Touchque
+from touchque.exceptions import TouchqueConfigException
 from touchque.guard import is_status_poll, run_guard
 from .fake_api import fake_api  # noqa: F401 (fixture)
 
 
-def client_for(api) -> TouchQue:
-    return TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=api.base_url))
+def client_for(api) -> Touchque:
+    return Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url=api.base_url))
 
 
 def test_start_check_complete_full_flow(fake_api):
@@ -48,7 +48,7 @@ def test_unknown_action_is_a_clear_config_error(fake_api):
     api = fake_api
     api.link('jane@acme.com')
     tq = client_for(api)
-    with pytest.raises(TouchQueConfigException, match='NOT_DEFINED') as exc:
+    with pytest.raises(TouchqueConfigException, match='NOT_DEFINED') as exc:
         tq.start('NOT_DEFINED', 'jane@acme.com')
     assert 'client.action_types.define("NOT_DEFINED")' in str(exc.value)
 

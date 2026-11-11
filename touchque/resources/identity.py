@@ -1,4 +1,4 @@
-"""TouchQue Login Management API (``client.identity``): your customers'
+"""Touchque Login Management API (``client.identity``): your customers'
 accounts, roles, business-customer organizations, apps, APIs, connections and
 the tenant itself, from your server with your workspace key.
 
@@ -72,7 +72,7 @@ class IdentityUsers:
         return self._http.delete(f'/identity/users/{_id(user_id)}/sessions')
 
     def reset_mfa(self, user_id: str) -> Dict[str, Any]:
-        """Removes passkeys, unlinks the TouchQue app, turns email codes off, signs out everywhere."""
+        """Removes passkeys, unlinks the Touchque app, turns email codes off, signs out everywhere."""
         return self._http.delete(f'/identity/users/{_id(user_id)}/mfa')
 
     def connected_accounts(self, user_id: str) -> Dict[str, Any]:
@@ -210,7 +210,7 @@ class Identity:
         return self._http.get('/identity/tenant')
 
     def update_tenant(self, **body: Any) -> Dict[str, Any]:
-        """Turns TouchQue Login on (slug, displayName) or changes its settings."""
+        """Turns Touchque Login on (slug, displayName) or changes its settings."""
         return self._http.put('/identity/tenant', body)
 
     def rotate_signing_key(self) -> Dict[str, Any]:
@@ -219,7 +219,7 @@ class Identity:
     def set_approver_app_name(self, name: Optional[str]) -> Dict[str, Any]:
         """The phone app the hosted pages tell customers to approve on ("Approve on the Acme app").
 
-        None: your brand name when the Mobile SDK is set up, else TouchQue (``approverApp`` in the tenant shows which).
+        None: your brand name when the Mobile SDK is set up, else Touchque (``approverApp`` in the tenant shows which).
         """
         return self._http.put('/identity/tenant', {'branding': {'approverAppName': name}})
 
@@ -260,7 +260,7 @@ class Identity:
         return self._http.put(f'/identity/delivery/{_id(channel)}', body)
 
     def remove_delivery(self, channel: str) -> Dict[str, Any]:
-        """Back to TouchQue's transport."""
+        """Back to Touchque's transport."""
         return self._http.delete(f'/identity/delivery/{_id(channel)}')
 
     def test_delivery(self, channel: str, to: str) -> Dict[str, Any]:

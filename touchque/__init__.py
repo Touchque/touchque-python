@@ -1,23 +1,23 @@
 import logging as _logging
 
 from .config import Config
-from .client import TouchQue, get_default_client
+from .client import Touchque, get_default_client
 from .exceptions import (
-    TouchQueException,
-    TouchQueAPIException,
-    TouchQueFeatureException,
-    TouchQueFeatureNotInPlanException,
-    TouchQueFeatureReadOnlyException,
-    TouchQueFeatureOffException,
-    TouchQueNetworkException,
-    TouchQueTimeoutException,
-    TouchQueRejectedException,
-    TouchQueWebhookSignatureException,
-    TouchQueWebhookReplayException,
-    TouchQueConfigException,
-    TouchQuePasskeyRequiredError,
-    TouchQueApprovalError,
-    TouchQueApprovalMismatchError,
+    TouchqueException,
+    TouchqueAPIException,
+    TouchqueFeatureException,
+    TouchqueFeatureNotInPlanException,
+    TouchqueFeatureReadOnlyException,
+    TouchqueFeatureOffException,
+    TouchqueNetworkException,
+    TouchqueTimeoutException,
+    TouchqueRejectedException,
+    TouchqueWebhookSignatureException,
+    TouchqueWebhookReplayException,
+    TouchqueConfigException,
+    TouchquePasskeyRequiredError,
+    TouchqueApprovalError,
+    TouchqueApprovalMismatchError,
 )
 from .resources.webhook import ReplayCache, MemoryReplayCache, WebhookReasons, WebhookEvents
 from .steps import normalize_details, details_digest
@@ -37,12 +37,12 @@ from .resources.device_risk import DEVICE_RISK_EVENTS, DEVICE_RISK_REPORTS, pars
 from .resources.action_types import SECOND_THOUGHT_QUESTIONS
 from .relay import RelayHandler, RelayResponse, RELAY_ROUTES
 from .rate_limiter import FixedWindowLimiter
-from .agent import TouchQueAgent, generate_agent_key, jwk_thumbprint
+from .agent import TouchqueAgent, generate_agent_key, jwk_thumbprint
 from .agent_frameworks import (
     ApprovalPolicy, approve_interruptions_with_touchque, current_approval, guard_mcp_session, require_agent_approval,
     touchque_can_use_tool, with_touchque_approval,
 )
-from .org_agent import TouchQueOrgAgent, file_token, github_actions_token
+from .org_agent import TouchqueOrgAgent, file_token, github_actions_token
 from .mcp_auth import McpAuth, McpAuthError
 from .cross_app_access import (
     ID_JAG_TOKEN_TYPE, IdJagError, IdJagVerifier, redeem_id_jag, request_id_jag,
@@ -56,26 +56,26 @@ from .hosted_login import HostedLogin, HostedLoginError, AuthorizationRequest, T
 from .my_account import MyAccount, MyAccountError
 
 __all__ = [
-    'TouchQue',
+    'Touchque',
     'Config',
     'get_default_client',
-    'TouchQueException',
-    'TouchQueAPIException',
-    'TouchQueFeatureException',
-    'TouchQueFeatureNotInPlanException',
-    'TouchQueFeatureReadOnlyException',
-    'TouchQueFeatureOffException',
-    'TouchQueNetworkException',
-    'TouchQueTimeoutException',
-    'TouchQueRejectedException',
-    'TouchQueWebhookSignatureException',
-    'TouchQueWebhookReplayException',
+    'TouchqueException',
+    'TouchqueAPIException',
+    'TouchqueFeatureException',
+    'TouchqueFeatureNotInPlanException',
+    'TouchqueFeatureReadOnlyException',
+    'TouchqueFeatureOffException',
+    'TouchqueNetworkException',
+    'TouchqueTimeoutException',
+    'TouchqueRejectedException',
+    'TouchqueWebhookSignatureException',
+    'TouchqueWebhookReplayException',
     'ReplayCache',
     'MemoryReplayCache',
     'WebhookReasons',
     'WebhookEvents',
-    'TouchQueConfigException',
-    'TouchQuePasskeyRequiredError',
+    'TouchqueConfigException',
+    'TouchquePasskeyRequiredError',
     'normalize_details',
     'details_digest',
     'verify_approval_proof',
@@ -107,7 +107,7 @@ __all__ = [
     'RelayResponse',
     'RELAY_ROUTES',
     'FixedWindowLimiter',
-    'TouchQueAgent',
+    'TouchqueAgent',
     'ApprovalPolicy',
     'with_touchque_approval',
     'current_approval',
@@ -116,7 +116,7 @@ __all__ = [
     'touchque_can_use_tool',
     'guard_mcp_session',
     'generate_agent_key',
-    'TouchQueOrgAgent',
+    'TouchqueOrgAgent',
     'github_actions_token',
     'file_token',
     'McpAuth',

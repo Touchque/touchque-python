@@ -12,10 +12,10 @@ import urllib.request
 import pytest
 
 from touchque import (
-    ApprovalPolicy, Config, TouchQue, TouchQueAgent, approve_interruptions_with_touchque, current_approval, generate_agent_key,
+    ApprovalPolicy, Config, Touchque, TouchqueAgent, approve_interruptions_with_touchque, current_approval, generate_agent_key,
     guard_mcp_session, touchque_can_use_tool, with_touchque_approval,
 )
-from touchque.exceptions import TouchQueApprovalError
+from touchque.exceptions import TouchqueApprovalError
 
 from .fake_api import fake_api  # noqa: F401 (fixture)
 
@@ -29,12 +29,12 @@ def _post(api, path, body):
 
 
 def _setup(api):
-    tq = TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=api.base_url))
+    tq = Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url=api.base_url))
     api.link(USER)
     tq.action_types.define('PAY_INVOICE', critical=False)
     keys = generate_agent_key()
     created = tq.agents.create('Framework bot', ['PAY_INVOICE'], public_key=keys['public_jwk'])
-    return TouchQueAgent(agent_id=created['id'], private_key=keys['private_jwk'], base_url=api.base_url)
+    return TouchqueAgent(agent_id=created['id'], private_key=keys['private_jwk'], base_url=api.base_url)
 
 
 def _policy(api, agent, approve: bool) -> ApprovalPolicy:
@@ -69,7 +69,7 @@ def test_decorated_tool_runs_after_the_phone(fake_api):
     def refused(iban: str, amount: str) -> str:
         return 'paid'
 
-    with pytest.raises(TouchQueApprovalError):
+    with pytest.raises(TouchqueApprovalError):
         refused(IBAN, '9.00')
 
 

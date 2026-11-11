@@ -2,7 +2,8 @@ from setuptools import setup, find_packages
 
 setup(
     name="touchque-authenticator",
-    version="4.2.0",    description="Official Python SDK for Touchque Authenticator (2FA/MFA, passkeys, adaptive auth)",
+    version="5.0.0",
+    description="Official Python SDK for Touchque Authenticator (2FA/MFA, passkeys, adaptive auth)",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     author="Touchque",
@@ -20,10 +21,11 @@ setup(
         "requests>=2.25.1",
     ],
     extras_require={
-        "dev": ["pytest>=7.0.0", "cryptography>=3.1"],
+        # httpx: FastAPI's TestClient in the tests.
+        "dev": ["pytest>=7.0.0", "cryptography>=3.1", "httpx>=0.23"],
         # verify_approval_proof (ECDSA P-256); the core stays requests-only.
         "proof": ["cryptography>=3.1"],
-        # TouchQueAgent (an AI agent's own key: private_key_jwt + DPoP).
+        # TouchqueAgent (an AI agent's own key: private_key_jwt + DPoP).
         "agent": ["cryptography>=3.1"],
         "flask": ["flask>=2.0"],
         "django": ["django>=3.2"],

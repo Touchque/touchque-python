@@ -1,9 +1,9 @@
-""""Why?" case codes against the shared fake TouchQue API: every decision names
+""""Why?" case codes against the shared fake Touchque API: every decision names
 one, the step shows it with plain reasons, a refusal and the raw API error
 carry it, and the silent check returns it. Same scenarios as the Node SDK."""
 import pytest
 
-from touchque import Config, TouchQue, TouchQueAPIException
+from touchque import Config, Touchque, TouchqueAPIException
 from touchque.guard import run_guard
 from touchque.steps import start
 from .fake_api import fake_api  # noqa: F401 (fixture)
@@ -12,7 +12,7 @@ from .fake_api import fake_api  # noqa: F401 (fixture)
 @pytest.fixture
 def tq(fake_api):
     fake_api.link('jane@acme.com')
-    return TouchQue(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
+    return Touchque(Config(api_key='tq_test_key', api_secret='test_secret', base_url=fake_api.base_url))
 
 
 def test_a_number_matched_step_names_its_case_and_plain_reasons(tq, fake_api):
@@ -26,7 +26,7 @@ def test_a_number_matched_step_names_its_case_and_plain_reasons(tq, fake_api):
 def test_a_refusal_names_its_case_in_the_step_and_on_the_exception(tq, fake_api):
     fake_api.opts(blocked='access_policy')
     assert start(tq, 'LOGIN', 'jane@acme.com') == {'state': 'blocked', 'reason': 'access_policy', 'caseCode': 'REF-USE'}
-    with pytest.raises(TouchQueAPIException) as e:
+    with pytest.raises(TouchqueAPIException) as e:
         tq.login.request('jane@acme.com', type='LOGIN')
     assert e.value.status == 403 and e.value.case_code == 'REF-USE'
     fake_api.opts(blocked=None, frozen=True)

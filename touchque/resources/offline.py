@@ -5,7 +5,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from ..http_client import HttpClient
-from ..exceptions import TouchQueAPIException
+from ..exceptions import TouchqueAPIException
 
 _CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
@@ -82,7 +82,7 @@ class Offline:
     def totp_verifiers(self, external_usernames: List[str], from_step: Optional[int] = None,
                        steps: Optional[int] = None) -> Dict[str, Any]:
         """For checking typed time-based codes while your server cannot reach
-        TouchQue (an outage): salted, slow digests of each user's next codes,
+        Touchque (an outage): salted, slow digests of each user's next codes,
         never a key. Up to 1,000 users and 24,000 user-steps a call; ``steps`` 1-480 (default 480, four hours)
         from ``from_step`` (default: the current 30-second step). Returns
         ``{stepSeconds, fromStep, steps, notAfterStep, kdf, users: [{externalUsername,
@@ -101,7 +101,7 @@ class Offline:
     def match_totp_verifier(verifiers: Dict[str, Any], user: Dict[str, Any], code: str,
                             at: Optional[float] = None) -> Optional[int]:
         """Checks a typed code against one user's digests from
-        :meth:`totp_verifiers` without calling TouchQue. Returns the step the
+        :meth:`totp_verifiers` without calling Touchque. Returns the step the
         code belongs to (the current one or one either side), or ``None``.
         Accept each step once: remember the step you accepted for the user and
         refuse codes for it or an older one. ``at``: Unix time (default now)."""
@@ -128,7 +128,7 @@ class Offline:
     def _not_approved_as_result(call) -> Dict[str, Any]:
         try:
             return call()
-        except TouchQueAPIException as err:
+        except TouchqueAPIException as err:
             if err.status is not None and err.status < 500:
                 return {
                     'approved': False,

@@ -1,12 +1,12 @@
 """Pairing a browser by QR code: your page shows a QR code, the person scans it
-with the TouchQue app, and the phone that scanned is the one asked to approve.
+with the Touchque app, and the phone that scanned is the one asked to approve.
 
 1. Your page gets the thumbprint of its browser key (``@touchque/web``
    ``browserKey.thumbprint()``) and sends it to your server.
 2. ``create(key_thumbprint, client_ip=..., user_agent=...)`` registers a
    pairing and returns ``uri`` (``touchque://pair-browser?...``): show it as a
    QR code. It can be scanned once, for ``ttl_seconds`` (default 120). The
-   nonce in it never leaves your server and the QR: TouchQue keeps only its hash.
+   nonce in it never leaves your server and the QR: Touchque keeps only its hash.
 3. Poll ``get(pairing_id)``: ``scanned`` once a phone holding one of your users'
    accounts read it (``externalUsername``, ``proximity``), ``confirmed`` once
    the person went on, ``reported`` when they said someone told them to scan
@@ -23,7 +23,7 @@ import re
 from typing import Any, Dict, Optional
 from urllib.parse import quote
 
-from ..exceptions import TouchQueConfigException
+from ..exceptions import TouchqueConfigException
 from ..http_client import HttpClient
 
 #: What ``refuse`` may tell the phone.
@@ -44,7 +44,7 @@ def qr_pairing_uri(pairing_id: str, nonce: str, key_thumbprint: str) -> str:
 
 def _path(pairing_id: str, method: str, rest: str = '') -> str:
     if not isinstance(pairing_id, str) or not pairing_id:
-        raise TouchQueConfigException(f'qr_pairings.{method}() needs the pairing_id.')
+        raise TouchqueConfigException(f'qr_pairings.{method}() needs the pairing_id.')
     return f'/qr-pairings/{quote(pairing_id, safe="")}{rest}'
 
 
@@ -62,9 +62,9 @@ class QrPairings:
         if os_name is None:
             os_name = os
         if not isinstance(key_thumbprint, str) or not _B64URL_43.match(key_thumbprint):
-            raise TouchQueConfigException('qr_pairings.create() needs key_thumbprint: the RFC 7638 thumbprint of the browser key, base64url (43 characters).')
+            raise TouchqueConfigException('qr_pairings.create() needs key_thumbprint: the RFC 7638 thumbprint of the browser key, base64url (43 characters).')
         if ttl_seconds is not None and (not isinstance(ttl_seconds, int) or isinstance(ttl_seconds, bool) or not 30 <= ttl_seconds <= 300):
-            raise TouchQueConfigException('qr_pairings.create(): ttl_seconds must be 30 to 300.')
+            raise TouchqueConfigException('qr_pairings.create(): ttl_seconds must be 30 to 300.')
         nonce = _b64url(_os.urandom(32))
         body: Dict[str, Any] = {'nonceHash': _b64url(hashlib.sha256(nonce.encode('utf-8')).digest()), 'keyThumbprint': key_thumbprint}
         for key, value in (('clientIp', client_ip), ('userAgent', user_agent), ('browser', browser), ('os', os_name), ('ttlSeconds', ttl_seconds)):
@@ -82,9 +82,9 @@ class QrPairings:
         """Your own checks refused a scanned pairing; the phone shows ``message``.
         Only a ``scanned`` or ``confirmed`` pairing can be refused (409 ``not_open``)."""
         if reason not in QR_PAIRING_REFUSAL_REASONS:
-            raise TouchQueConfigException(f'qr_pairings.refuse(): reason must be one of {", ".join(QR_PAIRING_REFUSAL_REASONS)}.')
+            raise TouchqueConfigException(f'qr_pairings.refuse(): reason must be one of {", ".join(QR_PAIRING_REFUSAL_REASONS)}.')
         if not isinstance(message, str) or not message.strip():
-            raise TouchQueConfigException('qr_pairings.refuse() needs message: what the phone shows (up to 300 characters).')
+            raise TouchqueConfigException('qr_pairings.refuse() needs message: what the phone shows (up to 300 characters).')
         body: Dict[str, Any] = {'reason': reason, 'message': message}
         if case_code:
             body['caseCode'] = case_code

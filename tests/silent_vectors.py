@@ -7,7 +7,7 @@ _VECTORS = os.path.join(os.path.dirname(__file__), '..', 'fixtures', 'silent-sig
 with open(_VECTORS, encoding='utf-8') as fh:
     VECTORS = json.load(fh)
 
-#: The proof as the browser sends it in X-TouchQue-Browser (base64url JSON).
+#: The proof as the browser sends it in X-Touchque-Browser (base64url JSON).
 PROOF = next(c['proof'] for c in VECTORS['browserProof']['cases'] if c['name'] == 'validHeaderEncoding')
 #: The RFC 7638 thumbprint of that proof's key.
 THUMBPRINT = VECTORS['browserProof']['thumbprint']['expected']

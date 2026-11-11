@@ -5,7 +5,7 @@ phone without a help desk.
 1. Let users name colleagues who can vouch for them (``set_vouchers``), behind
    an approval on their phone.
 2. When the phone is gone, after the password (or your IdP): ``start``. Show
-   ``bindUri`` as a QR for the TouchQue app on the new phone, then poll
+   ``bindUri`` as a QR for the Touchque app on the new phone, then poll
    ``status`` and show each voucher's ``code``: the user reads it to the
    colleague on a call, who types it on their own phone.
 3. After the cooling-off nobody vetoed, the account is on the new phone
@@ -16,7 +16,7 @@ Admins can stop a running recovery with ``veto``.
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
-from ..exceptions import TouchQueConfigException
+from ..exceptions import TouchqueConfigException
 from ..http_client import HttpClient
 
 OPEN_STATUSES = ('AWAITING_DEVICE', 'VOUCHING', 'COOLING')
@@ -36,16 +36,16 @@ class Recovery:
     def vouchers(self, external_username: str) -> Dict[str, Any]:
         """The colleagues a user named, and whether each can vouch today."""
         if not external_username:
-            raise TouchQueConfigException('recovery.vouchers() needs the user (external_username)')
+            raise TouchqueConfigException('recovery.vouchers() needs the user (external_username)')
         return self._http.get('/recovery/vouchers', {'externalUsername': external_username})
 
     def set_vouchers(self, external_username: str, vouchers: List[str]) -> Dict[str, Any]:
         """Replaces the user's vouchers (at most 5 are kept). Ask for the
         user's phone first: whoever sets them chooses who may move the account."""
         if not external_username:
-            raise TouchQueConfigException('recovery.set_vouchers() needs the user (external_username)')
+            raise TouchqueConfigException('recovery.set_vouchers() needs the user (external_username)')
         if not isinstance(vouchers, list):
-            raise TouchQueConfigException('recovery.set_vouchers() needs a list of vouchers')
+            raise TouchqueConfigException('recovery.set_vouchers() needs a list of vouchers')
         return self._http.post('/recovery/vouchers', {'externalUsername': external_username, 'vouchers': vouchers})
 
     def start(
@@ -61,14 +61,14 @@ class Recovery:
         notice_details: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """Starts moving the user to a new phone. Call it only after the first
-        factor. Raises TouchQueAPIException with ``code`` ``not_enough_vouchers``,
+        factor. Raises TouchqueAPIException with ``code`` ``not_enough_vouchers``,
         ``recovery_in_progress``, ``blocked``, ``frozen`` or ``rate_limited``::
 
             r = tq.recovery.start(user, client_ip=ip, display_name='Ada')
             show_qr(r['bindUri'])  # the new phone scans it
         """
         if not external_username:
-            raise TouchQueConfigException('recovery.start() needs the user (external_username)')
+            raise TouchqueConfigException('recovery.start() needs the user (external_username)')
         payload: Dict[str, Any] = {'externalUsername': external_username}
         if client_ip:
             payload['clientIp'] = client_ip
@@ -91,13 +91,13 @@ class Recovery:
     def status(self, recovery_id: str) -> Dict[str, Any]:
         """The recovery now, with its receipt chain. Poll it while the user waits."""
         if not recovery_id:
-            raise TouchQueConfigException('recovery.status() needs the recovery id')
+            raise TouchqueConfigException('recovery.status() needs the recovery id')
         return self._http.get(f'/recovery/{quote(recovery_id, safe="")}')
 
     def list(self, external_username: Optional[str] = None, open: bool = False) -> List[Dict[str, Any]]:
         """A user's recoveries, or (``open=True``) every running one of your workspace."""
         if not external_username and not open:
-            raise TouchQueConfigException('recovery.list() needs external_username or open=True')
+            raise TouchqueConfigException('recovery.list() needs external_username or open=True')
         params: Dict[str, Any] = {}
         if external_username:
             params['externalUsername'] = external_username
@@ -109,7 +109,7 @@ class Recovery:
     def veto(self, recovery_id: str, by: Optional[str] = None, reason: Optional[str] = None) -> Dict[str, Any]:
         """Stops a running recovery (e.g. an admin who does not believe it). Does not freeze the user."""
         if not recovery_id:
-            raise TouchQueConfigException('recovery.veto() needs the recovery id')
+            raise TouchqueConfigException('recovery.veto() needs the recovery id')
         payload: Dict[str, Any] = {}
         if by:
             payload['by'] = by
