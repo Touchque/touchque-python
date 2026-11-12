@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 from .config import Config
 from .exceptions import TouchqueAPIException, TouchqueNetworkException, api_exception
 
-SDK_VERSION = '5.0.0'
+SDK_VERSION = '5.1.0'
 
 def _query_value(value: Any) -> Any:
     # The API reads only 'true' / 'false'; urlencode would send Python's 'True' / 'False'.
@@ -126,19 +126,21 @@ class HttpClient:
             response_data = response.json()
         except ValueError:
             response_data = {}
+        return self._result(response.status_code, response_data, response.headers.get('Retry-After'))
 
-        if response.status_code >= 400:
+    def _result(self, status: int, response_data: Dict[str, Any], retry_after_header: Optional[str] = None) -> Dict[str, Any]:
+        """The parsed answer, or the exception for an error answer (status >= 400)."""
+        if status >= 400:
             error_message = response_data.get('error') or response_data.get('message') or 'Unknown API Error'
             retry_after = response_data.get('retryAfter')
             if retry_after is None:
-                header_val = response.headers.get('Retry-After')
                 try:
-                    retry_after = int(header_val) if header_val else None
+                    retry_after = int(retry_after_header) if retry_after_header else None
                 except ValueError:
                     retry_after = None
             raise api_exception(
                 error_message,
-                status=response.status_code,
+                status=status,
                 code=response_data.get('code'),
                 reason=response_data.get('reason'),
                 attempts_left=response_data.get('attemptsLeft'),

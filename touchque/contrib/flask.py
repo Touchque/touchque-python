@@ -34,8 +34,11 @@ from typing import Any, Callable, Dict, Optional
 
 from flask import Blueprint, abort, current_app, g, json, jsonify, request
 
-from ..client import Touchque, get_default_client
-from ..guard import SilentSignIn, guard_input_from_headers, run_guard, silent_input_from_headers
+from ..client import Touchque
+from ..guard import (
+    ErrorBody, SilentSignIn, guard_input_from_headers, guard_response_body, guard_response_headers, run_guard,
+    silent_input_from_headers,
+)
 from ..relay import RELAY_ROUTES, RelayHandler
 from ..steps import LoginDetails
 
@@ -57,8 +60,14 @@ def require_touchque(
     reference_id: Optional[Callable[[], Optional[str]]] = None,
     silent_sign_in: SilentSignIn = False,
     context: Optional[Callable[[], Optional[Dict[str, Any]]]] = None,
+    error_body: Optional[ErrorBody] = None,
 ) -> Callable:
     """
+    ``client``: default ``get_default_client()``, built from ``TQ_API_KEY`` /
+    ``TQ_API_SECRET`` on the first request. Without them the route answers
+    500 ``misconfigured`` (401 when nobody is signed in) and the view never
+    runs; nothing is raised at import or on a request.
+
     ``user``: who is approving. Default: ``flask.g.user`` (string, or an
     object with ``.email``/``.id``/``.username``). For the login step, return
     the user who just passed your password check, e.g.
@@ -76,6 +85,16 @@ def require_touchque(
 
     ``context``: for your Touchque Actions only (``event.context``), e.g.
     ``context=lambda: {'roles': g.user.roles}``. Never shown on the phone.
+
+    ``error_body``: your app's own error shape for the refusals (401, 403,
+    408, 423, 429, 500, 503), e.g.
+    ``error_body=lambda r: {'message': r['message'], 'code': r['code']}``.
+    It gets ``{'status', 'code', 'message', 'touchque'}``; what it returns
+    counts by Flask's JSON encoding: an object (a dict, a dataclass, a pydantic
+    model) is sent with ``touchque`` set to the step, anything else as it is.
+    Status and headers stay, and every refusal carries ``X-Touchque-State``
+    (and ``X-Touchque-Reason``). Never called for a 202 step (see
+    ``guard_response_body``).
     """
     user_of = user or _default_user
     tq = client
@@ -83,10 +102,9 @@ def require_touchque(
     def decorator(view: Callable) -> Callable:
         @functools.wraps(view)
         def wrapped(*args: Any, **kwargs: Any) -> Any:
-            c = tq or get_default_client()
             uid = user_of()
             result = run_guard(
-                c, uid, action,
+                tq, uid, action,
                 details=details() if details else None,
                 reference_id=reference_id() if reference_id else None,
                 context=context() if context else None,
@@ -97,12 +115,11 @@ def require_touchque(
             if 'approved' in result:
                 g.touchque = result['approved']
                 return view(*args, **kwargs)
-            resp = jsonify(result['body'])
+            # Encoded like the response (the app's JSON provider), so a value it cannot encode is caught.
+            resp = jsonify(guard_response_body(result, error_body, encode=json.dumps))
             resp.status_code = result['status']
-            resp.headers['Cache-Control'] = 'no-store'
-            retry = result['body']['touchque'].get('retryAfter')
-            if retry:
-                resp.headers['Retry-After'] = str(retry)
+            for name, value in guard_response_headers(result).items():
+                resp.headers[name] = value
             return resp
         return wrapped
     return decorator

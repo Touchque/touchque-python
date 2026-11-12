@@ -73,6 +73,100 @@ header `X-Touchque-Token: <token>` — see
 this loop for you in the browser. Once approved, the retried request reaches
 your view exactly once.
 
+While the first-time QR is up, polls answer `{"touchque": {"state": "enroll", "expiresAt": ...}}` without
+`enroll`: keep showing the QR you have. A new QR comes with `enroll.qrCodeDataUrl` when the old one
+expired. Pages on `@touchque/web` need 2.1.0.
+
+### Refusals in your own error shape
+
+A refusal answers 401 (nobody signed in), 403 (`rejected`, `blocked`), 408 (`expired`), 423 (`frozen`) or
+429 (`rate_limited`, both with `Retry-After`), and 500 `misconfigured` / 503 `unavailable` when Touchque is
+not set up or cannot be reached. The body is `{"touchque": {"state": ..., "reason": ...}}`, with
+`"error": {"code", "message"}` on 401, 500 and 503. `error_body` sends your app's own shape instead:
+
+```python
+@app.post('/transfer')
+@require_touchque('SEND_MONEY', error_body=lambda r: {'message': r['message'], 'code': r['code']})
+def transfer():
+    ...
+# 403 {"message": "The approval was rejected.", "code": "rejected", "touchque": {"state": "rejected", ...}}
+```
+
+It is called for every answer with status 400 or above, never for a 202 step, with a dict:
+`status`; `code` (the guard's `error.code`, else the step's `reason`, else its `state`); `message`
+(`error.message`, else "The approval was rejected.", "The approval expired. Try again.", "Too many
+rejected approvals. Try again later.", "Too many attempts. Try again later." or "The approval was
+refused."); and `touchque`, a copy of the step. What it returns counts by its JSON encoding, the
+framework's own (Flask's JSON provider, `DjangoJSONEncoder`, FastAPI's `jsonable_encoder`): what encodes
+to an object (a dict, a dataclass, a pydantic model) is sent with `touchque` set to the step, so
+`@touchque/web` still sees the state (no `token` is added); anything else (a string, a list, `None`) is
+sent as it is. The status and headers stay. If it raises, or returns what cannot be encoded, the default
+body is sent and `[Touchque] error_body failed: ...` is logged. Django's `require_touchque` and FastAPI's
+`RequireTouchque` take the same option (on FastAPI it may be async); on FastAPI,
+`install_touchque_exception_handler(app)` sends it as the whole body (without it, FastAPI puts it under
+`"detail"`).
+
+Every refusal (status 400 and above) also carries `X-Touchque-State: <state>`, and
+`X-Touchque-Reason: <reason>` when the step has one: `@touchque/web` 2.1.0 reads the step from them when
+the body has no `touchque`. A page on another origin needs them in `Access-Control-Expose-Headers`.
+
+### Without API keys
+
+The adapters build the default client from `TQ_API_KEY` / `TQ_API_SECRET` on the first request, not at
+import, and never raise for it. While the keys are not set, a guarded route answers **500**
+`{"touchque": {"state": "blocked", "reason": "misconfigured"}, "error": {"code": "misconfigured",
+"message": "Two-factor approval is not configured correctly."}}` with `Cache-Control: no-store` (401
+`unauthenticated` when nobody is signed in), your view never runs, and
+`[Touchque] TQ_API_KEY and TQ_API_SECRET are not set: routes guarded by Touchque answer 500 misconfigured.`
+is logged once (see [Logging](#logging)). It is a 500, not a 503: a deploy mistake should show in your
+monitoring, not invite retries. `@touchque/web` shows "Approvals are not set up correctly on this site."
+
+## Guard inside your handler
+
+When your own checks come first (the balance, who owns the account), call `run_guard` in the handler
+instead of the decorator. It is the same guard and never raises for Touchque: send its `status` and
+`body` as JSON with the headers `guard_response_headers(result)` gives (`Cache-Control: no-store`,
+`Retry-After` on 423 and 429, `X-Touchque-State` on a refusal), and do the action once it returns
+`approved`:
+
+```python
+from flask import g, jsonify, request
+from touchque import guard_input_from_headers, guard_response_headers, run_guard
+
+@app.post('/transfer')
+def transfer():
+    amount = int(request.json['amount'])
+    if amount > balance_of(g.user):             # your checks first: no push for a transfer you refuse anyway
+        return jsonify(error='insufficient_funds'), 400
+
+    result = run_guard(
+        None, g.user.email, 'SEND_MONEY',       # None: the default client (TQ_API_KEY / TQ_API_SECRET)
+        details={'Amount': f'{amount} EUR'},    # the same on every poll: build it from your own state
+        ip=request.remote_addr, user_agent=request.headers.get('User-Agent'),
+        **guard_input_from_headers(request.headers.get),  # X-Touchque-Token, -Offline, -Code, -Code-Type
+    )
+    if 'approved' not in result:
+        return jsonify(result['body']), result['status'], guard_response_headers(result)
+
+    send_money(g.user, amount)                  # once: the approval is used up
+    return jsonify(ok=True, approval=result['approved'])
+```
+
+The answers are the decorator's. 202 `{"touchque": step, "token": ...}` until the phone answers: the
+page shows the step and sends the request again with `X-Touchque-Token` (`@touchque/web` does), and
+`approved` comes exactly once, for this user, action and details. While the first-time QR is up the 202
+step is `{"state": "enroll", "expiresAt": ...}` without `enroll`: keep the QR on screen; a new one comes
+in `enroll.qrCodeDataUrl` after the old one expired. A refusal is 401, 403, 408, 423 or 429; 500
+`misconfigured` and 503 `unavailable` when Touchque is not set up or cannot be reached.
+
+With a rate limit of your own in front of it, count a request that only polls apart from a new attempt:
+`from touchque import is_status_poll` and call it with the same arguments as `run_guard` (`None` for
+the default client too); it is true when the request only reads the status or keeps the first-time QR.
+Then pass `before_start=` to `run_guard`: it calls it at most once, right before a first-time-QR token
+would start something after all (a push now that the phone is linked, or a new QR). Charge your per-user
+limit there and return your 429 as a result (`{'status': 429, 'body': ...}`) to answer it instead, or
+`None` to go on. The relay does this for `POST /login`.
+
 ## Action types
 
 `"SEND_MONEY"` above is an action type: one kind of approval, with the title the phone shows and
@@ -563,6 +657,54 @@ else:
 
 `verify_safe_approval` makes the guard's check off chain, so a co-signer or your own server never has to trust Touchque: it computes the Safe transaction hash (EIP-712) and the governance hash from the raw fields, rebuilds the 149-byte message the phone signed and checks the P-256 signature. Without `purpose` it accepts only an approval to execute this exact transaction (`approve`); an approval that schedules a governance change covers neither the Safe nonce nor the gas fields, so it passes only when you name `purpose='schedule'`. It refuses a high `s`, an approval that expired or is valid for more than a day, another approver index, and, when you pass `rows` or `display_digest` from your own decoding, rows the phone did not show. `reason` is `approval_malformed`, `public_key_invalid`, `approver_index_mismatch`, `approval_expired`, `rows_differ`, `high_s` or `signature_invalid`. `safe_tx_hash`, `safe_governance_hash`, `safe_approval_message` and `safe_display_digest` are exported too.
 
+## Testing your routes
+
+`touchque.testing.FakeTouchque` is a `Touchque` client that answers in memory: no network, no API keys,
+no Node.js. The real guard runs, so your routes answer what they answer in production, and your test
+plays the phone:
+
+```python
+# test_transfer.py
+import pytest
+from touchque.testing import FakeTouchque
+
+from myapp import app  # @require_touchque('SEND_MONEY', ...) with no client
+
+
+@pytest.fixture
+def tq():
+    with FakeTouchque() as fake:  # the default client until the test ends
+        yield fake
+
+
+def test_transfer_needs_an_approval(tq):
+    client = app.test_client()
+    first = client.post('/transfer', json={'amount': 5})
+    assert first.status_code == 202
+    token = first.get_json()['token']
+
+    tq.approve()  # the person approves on the phone
+    done = client.post('/transfer', json={'amount': 5}, headers={'X-Touchque-Token': token})
+    assert done.status_code == 200
+    assert tq.requests[-1]['details'] == [{'label': 'Amount', 'value': '5 EUR'}]
+```
+
+A route given `client=` uses that client: pass the fake there instead (`tq.install()` / `tq.uninstall()`
+are the context manager's two halves).
+
+- `tq.approve()`, `tq.reject()`, `tq.expire()`: the latest request, or one by its id
+  (`tq.approve(request_id)`; `via='WEBAUTHN'` approves with a passkey).
+- `FakeTouchque(auto_approve=True)` (or `tq.auto_approve = True`): every request is approved as it is
+  made. The first request still answers 202; the next one runs the route.
+- Every user has a phone linked. `tq.unlink(user)` shows them the first-time QR instead
+  (`FakeTouchque(linked=False)`: nobody has one); `tq.link(user)` is the phone scanning it.
+  `tq.secret_ttl_ms` is how long a QR works (5 minutes).
+- `FakeTouchque(number_match=True)`: pushes ask for the number `47`.
+- `tq.requests` (`id`, `user`, `type`, `details`, `referenceId`, `status`) and `tq.calls` (`method`,
+  `path`, `body`): what your app asked Touchque, in order.
+- Offline approval: the code is `ABCD123`, the time-based code `123456`. Calls outside the step-up
+  (recovery, agents …) raise `TouchqueAPIException` 404. `FakeClient` is another name for it.
+
 ## Errors
 
 All SDK errors extend `TouchqueException`: `TouchqueAPIException`,
@@ -589,7 +731,7 @@ See [SECURITY.md](https://github.com/Touchque/touchque-python/blob/main/SECURITY
 
 ## Logging
 
-The SDK's own problems (a misconfigured guard, a failed `on_challenge`, a relay error) go to `logging.getLogger('touchque')`, which has a `NullHandler`: nothing is printed until your app configures logging (`logging.basicConfig()`, or a handler on `'touchque'`). Lines carry an error's class and message, never the request.
+The SDK's own problems (a misconfigured guard, missing `TQ_API_KEY` / `TQ_API_SECRET` (once per process), a failed `on_challenge` or `error_body`, a relay error) go to `logging.getLogger('touchque')`, which has a `NullHandler`: nothing is printed until your app configures logging (`logging.basicConfig()`, or a handler on `'touchque'`). Lines carry an error's class and message, never the request.
 
 ## License
 

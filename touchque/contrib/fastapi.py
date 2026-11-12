@@ -20,7 +20,7 @@ FastAPI's default exception handler puts that JSON under a top-level
 ``"detail"`` key (``{"detail": {"touchque": ..., "token": ...}}``) — unlike
 the Django/Flask adapters, which return it at the top level. Call
 ``install_touchque_exception_handler(app)`` once at startup to flatten it and
-match the other adapters exactly.
+match the other adapters exactly (also what ``error_body`` returns).
 
 ``run_guard`` makes a blocking HTTP call (the ``requests`` library); it runs
 in FastAPI's threadpool via ``anyio.to_thread`` so it never blocks the event
@@ -42,20 +42,52 @@ Callbacks may be sync or async:
         on_authenticated=opened,
     ), prefix='/touchque')
 """
+import inspect
 import json
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 import anyio
 import anyio.from_thread
 import anyio.to_thread
 import fastapi
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, Response
 
-from ..client import Touchque, get_default_client
-from ..guard import SilentSignIn, guard_input_from_headers, run_guard, silent_input_from_headers
+from ..client import Touchque
+from ..guard import (
+    ErrorBody, SilentSignIn, _custom_body, _error_body_failed, _refusal, guard_input_from_headers,
+    guard_response_headers, run_guard, silent_input_from_headers,
+)
 from ..relay import RELAY_ROUTES, RelayHandler
 from ..steps import LoginDetails
+
+
+class _GuardAnswer(HTTPException):
+    """A step or refusal from ``RequireTouchque``: ``install_touchque_exception_handler``
+    sends its body as it is, whatever its shape (``detail`` cannot be None)."""
+
+    def __init__(self, status_code: int, body: Any, headers: Dict[str, str]):
+        super().__init__(status_code=status_code, detail=body, headers=headers)
+        self.touchque_body = body
+
+
+def _encode(value: Any) -> str:
+    """How FastAPI encodes a body: ``jsonable_encoder``, then ``JSONResponse``'s ``json.dumps``."""
+    return json.dumps(jsonable_encoder(value), ensure_ascii=False, allow_nan=False, separators=(',', ':'))
+
+
+async def _response_body(result: Dict[str, Any], error_body: Optional[Callable[[Dict[str, Any]], Any]]) -> Any:
+    """``guard_response_body`` for FastAPI: an ``error_body`` may be async."""
+    if error_body is None or result['status'] < 400:
+        return result['body']
+    try:
+        custom = error_body(_refusal(result))
+        if inspect.isawaitable(custom):
+            custom = await custom
+        return _custom_body(result, custom, _encode, plain=False)  # jsonable_encoder: pydantic aliases kept
+    except Exception as err:  # noqa: BLE001 - your callback must not turn a refusal into a crash
+        return _error_body_failed(result, err)
 
 
 async def _default_user(request: Request) -> Optional[str]:
@@ -75,8 +107,14 @@ def RequireTouchque(  # noqa: N802 — reads as a dependency factory, PascalCase
     reference_id: Optional[Callable[[Request], Any]] = None,
     silent_sign_in: SilentSignIn = False,
     context: Optional[Callable[[Request], Any]] = None,
+    error_body: Optional[ErrorBody] = None,
 ) -> Callable[[Request], Any]:
     """
+    ``client``: default ``get_default_client()``, built from ``TQ_API_KEY`` /
+    ``TQ_API_SECRET`` on the first request. Without them the route answers
+    500 ``misconfigured`` (401 when nobody is signed in) and your route never
+    runs; nothing is raised at startup.
+
     ``user``: async or sync callable resolving who is approving from the
     request. Default: ``request.state.user``. For the login step, return the
     user who just passed your password check.
@@ -93,12 +131,23 @@ def RequireTouchque(  # noqa: N802 — reads as a dependency factory, PascalCase
 
     ``context``: for your Touchque Actions only (``event.context``), e.g. the
     user's roles. Never shown on the phone.
+
+    ``error_body``: your app's own error shape for the refusals (401, 403,
+    408, 423, 429, 500, 503), e.g.
+    ``error_body=lambda r: {'message': r['message'], 'code': r['code']}``.
+    It may be async. It gets ``{'status', 'code', 'message', 'touchque'}``;
+    what it returns counts by FastAPI's JSON encoding (``jsonable_encoder``):
+    an object (a dict, a pydantic model, a dataclass) is sent with
+    ``touchque`` set to the step, anything else as it is. Status and headers
+    stay, and every refusal carries ``X-Touchque-State`` (and
+    ``X-Touchque-Reason``). Never called for a 202 step (see
+    ``guard_response_body``). With ``install_touchque_exception_handler`` it is
+    the whole body; without it, FastAPI puts it under ``"detail"``.
     """
     user_of = user or _default_user
     tq = client
 
     async def dependency(request: Request) -> Any:
-        c = tq or get_default_client()
         uid = user_of(request)
         if hasattr(uid, '__await__'):
             uid = await uid
@@ -113,7 +162,7 @@ def RequireTouchque(  # noqa: N802 — reads as a dependency factory, PascalCase
             ctx = await ctx
 
         result = await anyio.to_thread.run_sync(lambda: run_guard(
-            c, uid, action, details=det, reference_id=ref, context=ctx,
+            tq, uid, action, details=det, reference_id=ref, context=ctx,
             ip=request.client.host if request.client else None,
             user_agent=request.headers.get('user-agent'),
             **guard_input_from_headers(lambda name: request.headers.get(name)),
@@ -121,26 +170,24 @@ def RequireTouchque(  # noqa: N802 — reads as a dependency factory, PascalCase
         ))
         if 'approved' in result:
             return result['approved']
-        headers = {'Cache-Control': 'no-store'}
-        retry = result['body']['touchque'].get('retryAfter')
-        if retry:
-            headers['Retry-After'] = str(retry)
-        raise HTTPException(status_code=result['status'], detail=result['body'], headers=headers)
+        raise _GuardAnswer(result['status'], await _response_body(result, error_body), guard_response_headers(result))
 
     return dependency
 
 
 def install_touchque_exception_handler(app: fastapi.FastAPI) -> None:
     """Optional: makes a raised Touchque step return the SAME JSON shape as
-    the Django/Flask adapters (no ``{"detail": ...}`` wrapper). Every other
-    ``HTTPException`` goes to FastAPI's own handler, unchanged (no body on a
-    204 or 304)."""
+    the Django/Flask adapters (no ``{"detail": ...}`` wrapper), and an
+    ``error_body`` result exactly as returned. Every other ``HTTPException``
+    goes to FastAPI's own handler, unchanged (no body on a 204 or 304)."""
     from fastapi import Request as _Request
     from fastapi.exception_handlers import http_exception_handler
     from fastapi.responses import JSONResponse
 
     @app.exception_handler(HTTPException)
     async def _touchque_exception_handler(request: _Request, exc: HTTPException):  # type: ignore[no-redef]
+        if isinstance(exc, _GuardAnswer):
+            return JSONResponse(exc.touchque_body, status_code=exc.status_code, headers=exc.headers)
         if isinstance(exc.detail, dict) and 'touchque' in exc.detail:
             return JSONResponse(exc.detail, status_code=exc.status_code, headers=exc.headers)
         return await http_exception_handler(request, exc)

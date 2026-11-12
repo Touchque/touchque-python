@@ -37,12 +37,14 @@ the body, anyone could burn a user's offline attempts and lock them out.
 import inspect
 import logging
 import re
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 from .exceptions import (
     TouchqueAPIException, TouchquePasskeyRequiredError, TouchqueRejectedException, TouchqueTimeoutException,
 )
-from .guard import SilentSignIn, guard_input_from_headers, is_status_poll, run_guard, silent_input_from_headers
+from .guard import (
+    SilentSignIn, guard_input_from_headers, guard_response_headers, is_status_poll, run_guard, silent_input_from_headers,
+)
 from .rate_limiter import FixedWindowLimiter
 
 # A 1.5 s poll for a 2-minute push is 80 requests: one attempt's worth of polls.
@@ -440,10 +442,25 @@ class _Ctx:
         headers_in = guard_input_from_headers(self.get_header)
         # Polling an approval already sent is not a new attempt: it has its own,
         # larger per-IP budget and never uses the user's push budget.
-        if is_status_poll(self.h.client, external_username, self.h.action_type, details=details, **headers_in):
+        poll = is_status_poll(self.h.client, external_username, self.h.action_type, details=details, **headers_in)
+        if poll:
             self.allow('login-poll', ip_factor=POLLS_PER_ATTEMPT)
         else:
             self.allow('login', external_username)
+        refused: List[RelayResponse] = []
+
+        def before_start() -> Optional[Dict[str, Any]]:
+            # A first-time-QR poll that starts after all (a push once linked, a new QR) pays like a fresh
+            # attempt, so a replayed token cannot start pushes or new secrets on the poll budget.
+            if not poll:
+                return None  # already charged above
+            try:
+                self.allow('login', external_username)
+            except _Done as done:
+                refused.append(done.response)
+                return {'status': done.response.status, 'body': done.response.body}
+            return None
+
         # Same two-phase contract as the step-up guard: 202 with the step (matching number /
         # first-time QR / offline QR) until approved; the page re-sends with X-Touchque-Token.
         result = run_guard(
@@ -452,17 +469,15 @@ class _Ctx:
             # Pre-auth: a typed username proves nothing, so no linking QR unless
             # get_login_user ties this route to the password step.
             enroll=bool(self.h.get_login_user),
+            before_start=before_start,
             **headers_in,
             **silent_input_from_headers(self.h.silent_sign_in, self.get_header)
         )
+        if refused:
+            return refused[0]  # the usual 429, Retry-After included
         approved = result.get('approved')
         if not approved:
-            headers = {}
-            retry = (result['body'].get('touchque') or {}).get('retryAfter')
-            if retry:
-                headers['Retry-After'] = str(retry)
-            headers['Cache-Control'] = 'no-store'
-            return _json(result['body'], result['status'], headers)
+            return _json(result['body'], result['status'], guard_response_headers(result))
         try:
             confirmed = approved.get('confirmedVia')
             via = 'offline-totp' if confirmed == 'OFFLINE_TOTP' else 'offline' if confirmed == 'OFFLINE_CODE' \
@@ -607,11 +622,7 @@ class _Ctx:
                                enroll=False, **headers_in)
             approved = result.get('approved')
             if not approved:
-                headers = {'Cache-Control': 'no-store'}
-                retry = (result['body'].get('touchque') or {}).get('retryAfter')
-                if retry:
-                    headers['Retry-After'] = str(retry)
-                return _json(result['body'], result['status'], headers)
+                return _json(result['body'], result['status'], guard_response_headers(result))
             return _json(self.h.client.webauthn.register_options(
                 user_id, discoverable=True, approval_request_id=approved.get('requestId')))
         except Exception as error:  # noqa: BLE001

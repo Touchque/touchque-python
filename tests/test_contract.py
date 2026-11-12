@@ -1,11 +1,14 @@
 """Contract tests against the shared fake Touchque API — a real HTTP round
 trip, so request signing is verified too (not just mocked). Same scenarios
 as the Node SDK's step-up tests."""
+import time
+
 import pytest
 
 from touchque import Config, Touchque
 from touchque.exceptions import TouchqueConfigException
 from touchque.guard import is_status_poll, run_guard
+from touchque.steps import _iso_ms, verify_guard_token
 from .fake_api import fake_api  # noqa: F401 (fixture)
 
 
@@ -250,3 +253,117 @@ def test_an_approval_taken_back_is_never_used(fake_api):
     done = run_guard(tq, 'jane@acme.com', 'LOGIN', token=first['body']['token'])
     assert done['status'] == 408
     assert done['body']['touchque'] == {'state': 'expired', 'reason': 'revoked'}
+
+
+# ── first-time QR: one QR per enrollment, not one per poll ──────────────
+
+def test_enroll_polls_keep_the_qr_until_the_phone_is_linked(fake_api):
+    api = fake_api
+    tq = client_for(api)
+    first = run_guard(tq, 'new@acme.com', 'LOGIN', details={'Device': 'Mac'})
+    qr = first['body']['touchque']['enroll']
+    assert qr['qrCodeDataUrl'] == 'data:image/png;base64,QR-new@acme.com' and qr['recoveryCodes'] == ['r1']
+    ee = _iso_ms(qr['expiresAt'])
+    assert 290000 < ee - time.time() * 1000 <= 300000  # the API's own expiresAt (5 minutes)
+    claims = verify_guard_token('test_secret', first['body']['token'])
+    assert claims['st'] == 'enroll' and claims['ee'] == ee
+
+    before = len(api.calls())
+    poll = run_guard(tq, 'new@acme.com', 'LOGIN', details={'Device': 'Mac'}, token=first['body']['token'])
+    assert poll['status'] == 202
+    assert poll['body']['touchque'] == {'state': 'enroll', 'expiresAt': qr['expiresAt'],
+                                        'details': [{'label': 'Device', 'value': 'Mac'}]}
+    assert [c['path'] for c in api.calls()[before:]] == ['/users/new%40acme.com']  # no generate or reset
+    again = verify_guard_token('test_secret', poll['body']['token'])
+    assert again['st'] == 'enroll' and again['ee'] == ee
+
+    api.link('new@acme.com')  # the phone scanned the QR
+    waiting = run_guard(tq, 'new@acme.com', 'LOGIN', details={'Device': 'Mac'}, token=poll['body']['token'])
+    assert waiting['status'] == 202 and waiting['body']['touchque']['state'] == 'waiting'
+
+
+def test_an_enroll_qr_about_to_expire_is_replaced(fake_api):
+    api = fake_api
+    api.opts(secretTtlMs=1000)
+    tq = client_for(api)
+    first = run_guard(tq, 'new@acme.com', 'LOGIN')
+    assert first['body']['touchque']['enroll']['qrCodeDataUrl'] == 'data:image/png;base64,QR-new@acme.com'
+    poll = run_guard(tq, 'new@acme.com', 'LOGIN', token=first['body']['token'])
+    assert poll['status'] == 202
+    assert poll['body']['touchque']['enroll']['qrCodeDataUrl'] == 'data:image/png;base64,QR2-new@acme.com'
+    assert '/auth/secret/reset' in api.paths()
+
+
+def test_an_enroll_token_without_an_expiry_starts_again(fake_api):
+    """No "ee" (an enroll step without a QR, or a 5.0 token): every poll starts again, as before."""
+    api = fake_api
+    tq = client_for(api)
+    old = run_guard(tq, 'new@acme.com', 'LOGIN', enroll=False)
+    assert old['body']['touchque'] == {'state': 'enroll'}
+    assert 'ee' not in verify_guard_token('test_secret', old['body']['token'])
+    assert is_status_poll(tq, 'new@acme.com', 'LOGIN', token=old['body']['token']) is False
+    again = run_guard(tq, 'new@acme.com', 'LOGIN', token=old['body']['token'])
+    assert again['body']['touchque']['enroll']['qrCodeDataUrl']
+    assert '/users/new%40acme.com' not in api.paths()
+
+
+def test_is_status_poll_counts_a_bound_enroll_token(fake_api):
+    tq = client_for(fake_api)
+    token = run_guard(tq, 'new@acme.com', 'LOGIN')['body']['token']
+    assert is_status_poll(tq, 'new@acme.com', 'LOGIN', token=token) is True
+    assert is_status_poll(tq, 'other@acme.com', 'LOGIN', token=token) is False
+    assert is_status_poll(tq, 'new@acme.com', 'SEND_MONEY', token=token) is False
+    assert is_status_poll(tq, 'new@acme.com', 'LOGIN', token=token, offline=True) is False
+
+    # The poll that renews an expiring QR (or replays an old token) still counts against the limit.
+    fake_api.opts(secretTtlMs=1000)
+    expiring = run_guard(tq, 'late@acme.com', 'LOGIN')['body']['token']
+    assert verify_guard_token('test_secret', expiring)['ee']
+    assert is_status_poll(tq, 'late@acme.com', 'LOGIN', token=expiring) is False
+
+
+def test_enroll_qr_expiry_is_the_apis_or_now_plus_ttl():
+    from touchque.steps import _enroll_qr, _iso_from_ms
+    assert _enroll_qr({'qrCodeDataUrl': 'qr', 'expiresAt': '2026-11-12T10:05:00.000Z', 'ttlMs': 1000})['enroll'][
+        'expiresAt'] == '2026-11-12T10:05:00.000Z'
+    before = int(time.time() * 1000)
+    step = _enroll_qr({'qrCodeDataUrl': 'qr', 'expiresAt': 'soon', 'ttlMs': 60000})
+    assert before + 60000 <= _iso_ms(step['enroll']['expiresAt']) <= time.time() * 1000 + 60000
+    assert 'expiresAt' not in _enroll_qr({'qrCodeDataUrl': 'qr', 'expiresAt': 'soon'})['enroll']
+    assert _iso_from_ms(_iso_ms('2026-11-12T12:05:00+02:00')) == '2026-11-12T10:05:00.000Z'
+    assert _iso_ms('2026-13-12T10:05:00Z') is None and _iso_ms(1700000000000) is None
+
+
+def test_before_start_runs_once_only_when_an_enroll_token_starts(fake_api):
+    api = fake_api
+    tq = client_for(api)
+    seen = []
+
+    def hook():
+        seen.append(api.paths()[-1])
+        return None
+
+    token = run_guard(tq, 'new@acme.com', 'LOGIN', before_start=hook)['body']['token']  # a fresh attempt
+    keep = run_guard(tq, 'new@acme.com', 'LOGIN', token=token, before_start=hook)  # keeps the QR
+    assert keep['body']['touchque']['state'] == 'enroll' and seen == []
+
+    api.link('new@acme.com')
+    before = len(api.calls())
+    refused = run_guard(tq, 'new@acme.com', 'LOGIN', token=token,
+                        before_start=lambda: {'status': 429, 'body': {'error': 'RATE_LIMITED'}})
+    assert refused == {'status': 429, 'body': {'error': 'RATE_LIMITED'}}
+    assert api.paths()[before:] == ['/users/new%40acme.com']  # nothing started
+    went = run_guard(tq, 'new@acme.com', 'LOGIN', token=token, before_start=hook)
+    assert went['body']['touchque']['state'] == 'waiting' and seen == ['/users/new%40acme.com']
+
+    api.opts(secretTtlMs=1000)  # a QR within 15 s of its expiry: the hook runs before the new QR
+    late = run_guard(tq, 'late@acme.com', 'LOGIN')['body']['token']
+    renewed = run_guard(tq, 'late@acme.com', 'LOGIN', token=late, before_start=hook)
+    assert renewed['body']['touchque']['enroll']['qrCodeDataUrl'] and len(seen) == 2
+
+    api.reset()
+    fresh = run_guard(tq, 'gone@acme.com', 'LOGIN')['body']['token']
+    api.reset()  # the QR is gone: GET /users answers 404, and the hook runs before the new QR
+    gone = run_guard(tq, 'gone@acme.com', 'LOGIN', token=fresh, before_start=hook)
+    assert gone['body']['touchque']['enroll']['qrCodeDataUrl'] and len(seen) == 3
+    assert run_guard(tq, 'gone@acme.com', 'LOGIN', before_start=hook)['status'] == 202 and len(seen) == 3

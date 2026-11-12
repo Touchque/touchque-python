@@ -630,3 +630,66 @@ def test_the_sdk_prints_nothing_unless_the_app_configures_logging():
     assert (out.stdout, out.stderr) == ('', '')
     configured = subprocess.run([sys.executable, '-W', 'ignore', '-c', 'import logging\nlogging.basicConfig()\n' + code], capture_output=True, text=True, check=True)
     assert 'approval failed' in configured.stderr
+
+
+# ── first-time QR tokens: starts pay like fresh attempts (5.1) ──────────
+
+def _enroll_relay(tq, **limits):
+    return make(tq, get_login_user=lambda req: 'new@example.com', rate_limit={'per_ip': 100, **limits})
+
+
+def test_enroll_token_replays_after_linking_pay_from_the_per_user_budget():
+    from touchque.testing import FakeTouchque
+    tq = FakeTouchque(linked=False)
+    h = _enroll_relay(tq, per_user=3)
+    first = call(h, 'POST', '/login', body={})  # 1 of 3
+    assert first.status == 202 and first.body['touchque']['enroll']['qrCodeDataUrl']
+    tq.link('new@example.com')
+    replays = [call(h, 'POST', '/login', body={}, headers={'X-Touchque-Token': first.body['token']})
+               for _ in range(30)]
+    assert [r.status for r in replays[:2]] == [202, 202]  # 2 and 3 of 3: pushes
+    assert {r.status for r in replays[2:]} == {429}       # not 30 pushes on the poll budget
+    assert replays[2].body['error'] == 'RATE_LIMITED' and replays[2].headers['Retry-After']
+    assert len(tq.requests) == 2
+
+
+def test_polls_that_keep_the_first_time_qr_are_never_charged():
+    from touchque.testing import FakeTouchque
+    tq = FakeTouchque(linked=False)
+    h = _enroll_relay(tq, per_user=2)
+    token = call(h, 'POST', '/login', body={}).body['token']  # 1 of 2
+    keeps = [call(h, 'POST', '/login', body={}, headers={'X-Touchque-Token': token}) for _ in range(30)]
+    assert {r.status for r in keeps} == {202}
+    assert all(r.body['touchque']['state'] == 'enroll' and 'enroll' not in r.body['touchque'] for r in keeps)
+    tq.link('new@example.com')
+    linked = call(h, 'POST', '/login', body={}, headers={'X-Touchque-Token': token})  # 2 of 2
+    assert linked.status == 202 and linked.body['touchque']['state'] == 'waiting'
+    assert call(h, 'POST', '/login', body={}, headers={'X-Touchque-Token': token}).status == 429
+
+
+def test_a_first_time_qr_renewal_at_the_margin_is_charged(monkeypatch):
+    from touchque.testing import FakeTouchque
+    tq = FakeTouchque(linked=False)
+    tq.secret_ttl_ms = 1000  # within 15 s of its expiry at once
+    h = _enroll_relay(tq, per_user=1)
+    token = call(h, 'POST', '/login', body={}).body['token']  # 1 of 1
+    renewal = call(h, 'POST', '/login', body={}, headers={'X-Touchque-Token': token})
+    assert renewal.status == 429 and renewal.body['error'] == 'RATE_LIMITED'
+    # Counted as a status poll just before the margin, then renewed: still charged, through before_start.
+    monkeypatch.setattr(relay_module, 'is_status_poll', lambda *a, **k: True)
+    raced = call(h, 'POST', '/login', body={}, headers={'X-Touchque-Token': token})
+    assert raced.status == 429 and raced.body['error'] == 'RATE_LIMITED' and raced.headers['Retry-After']
+    assert '/auth/secret/reset' not in [c['path'] for c in tq.calls]
+
+
+def test_relay_refusals_carry_the_touchque_state_headers():
+    from touchque.testing import FakeTouchque
+    tq = FakeTouchque()
+    h = make(tq, get_login_user=lambda req: 'jane@example.com', rate_limit=False)
+    first = call(h, 'POST', '/login', body={})
+    assert first.status == 202 and 'X-Touchque-State' not in first.headers
+    tq.reject()
+    res = call(h, 'POST', '/login', body={}, headers={'X-Touchque-Token': first.body['token']})
+    assert res.status == 403
+    assert res.headers['X-Touchque-State'] == 'rejected' and 'X-Touchque-Reason' not in res.headers
+    assert res.headers['Cache-Control'] == 'no-store'

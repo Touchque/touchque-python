@@ -37,7 +37,7 @@ class Touchque:
     def __init__(self, config: Optional[Config] = None):
         self.config = config or Config()
         self._api_secret = self.config.api_secret
-        http = HttpClient(self.config)
+        http = self._http_client()
 
         self.auth = Auth(http)
         self.login = Login(http)
@@ -67,6 +67,10 @@ class Touchque:
         self.device_risk = DeviceRisk(http)
         #: Safe Guard: Safe transactions approved on the approver's phone, for TouchqueSafeGuard.
         self.safe_guard = SafeGuard(http)
+
+    def _http_client(self) -> HttpClient:
+        """What every resource sends its calls through (``touchque.testing``'s fake answers them in memory)."""
+        return HttpClient(self.config)
 
     # ── headless step-up (see touchque.steps / touchque.guard) ─────────────
 
@@ -98,7 +102,10 @@ _default_client: Optional[Touchque] = None
 
 
 def get_default_client() -> Touchque:
-    """The client built from TQ_API_KEY / TQ_API_SECRET, created on first use."""
+    """The client built from TQ_API_KEY / TQ_API_SECRET, created on first use
+    (raises ``TouchqueConfigException`` while they are not set). The adapters
+    use it when given no ``client``; ``touchque.testing.FakeTouchque().install()``
+    replaces it in tests."""
     global _default_client
     if _default_client is None:
         _default_client = Touchque()

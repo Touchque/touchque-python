@@ -8,9 +8,11 @@ whatever the user has to see (the matching number, the enrollment QR code,
 the offline QR code). It never contains API secrets.
 """
 import base64
+import calendar
 import hashlib
 import hmac
 import json
+import re
 import time
 from typing import Any, Dict, List, Optional, Union
 
@@ -125,15 +127,61 @@ def start(client: 'Touchque', action: str, user: str, details: Optional[LoginDet
         raise
 
 
+_ISO_8601 = re.compile(
+    r'(\d{4})-(\d{2})-(\d{2})[Tt ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z|z|[+-]\d{2}:?\d{2})?')
+
+
+def _iso_ms(value: Any) -> Optional[int]:
+    """An ISO 8601 date-time (``2026-11-12T10:05:00.000Z``) as ms since the
+    epoch, or ``None`` when it is not one. No zone means UTC."""
+    m = _ISO_8601.fullmatch(value) if isinstance(value, str) else None
+    if not m:
+        return None
+    year, month, day, hour, minute, second = (int(g) for g in m.groups()[:6])
+    if not (1 <= month <= 12 and 1 <= day <= 31 and hour < 24 and minute < 60 and second < 61):
+        return None
+    try:
+        secs = calendar.timegm((year, month, day, hour, minute, second))
+    except (ValueError, OverflowError):
+        return None
+    zone = m.group(8)
+    if zone and zone not in ('Z', 'z'):
+        digits = zone[1:].replace(':', '')
+        offset = int(digits[:2]) * 3600 + int(digits[2:]) * 60
+        secs += offset if zone[0] == '-' else -offset
+    return secs * 1000 + int((m.group(7) or '0')[:3].ljust(3, '0'))
+
+
+def _iso_from_ms(ms: int) -> str:
+    """ms since the epoch as ISO 8601 in UTC, like JavaScript's toISOString()."""
+    return time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime(ms // 1000)) + '.%03dZ' % (ms % 1000)
+
+
+def _enroll_expiry(res: Dict[str, Any]) -> Optional[str]:
+    """When the first-time QR stops working: the API's ``expiresAt`` when it is
+    ISO 8601, else now + ``ttlMs`` when positive, else ``None``."""
+    if _iso_ms(res.get('expiresAt')) is not None:
+        return res['expiresAt']
+    ttl = res.get('ttlMs')
+    if isinstance(ttl, (int, float)) and not isinstance(ttl, bool) and ttl > 0:
+        return _iso_from_ms(int(time.time() * 1000) + int(ttl))
+    return None
+
+
+def _enroll_qr(res: Dict[str, Any]) -> Dict[str, Any]:
+    enroll = {'qrCodeDataUrl': res.get('qrCodeDataUrl'), 'recoveryCodes': res.get('recoveryCodes')}
+    expires_at = _enroll_expiry(res)
+    if expires_at:
+        # The guard binds it to its token (claim "ee"), so polls keep this QR instead of making a new one.
+        enroll['expiresAt'] = expires_at
+    return {'state': 'enroll', 'enroll': enroll}
+
+
 def _enroll_step(client: 'Touchque', user: str) -> Dict[str, Any]:
     """First-time linking. Never unlinks a phone: a secret is only re-issued
     when the account is confirmed NOT linked."""
     try:
-        gen = client.auth.generate_secret(user)
-        return {'state': 'enroll', 'enroll': {
-            'qrCodeDataUrl': gen.get('qrCodeDataUrl'), 'recoveryCodes': gen.get('recoveryCodes'),
-            'expiresAt': gen.get('expiresAt'),
-        }}
+        return _enroll_qr(client.auth.generate_secret(user))
     except TouchqueAPIException as err:
         if err.status != 409:
             raise
@@ -143,11 +191,7 @@ def _enroll_step(client: 'Touchque', user: str) -> Dict[str, Any]:
             current = None
         if current and (current.get('used') or current.get('deviceId')):
             return {'state': 'enroll', 'reason': 'already_linked'}
-        reset = client.auth.reset_secret(user)
-        return {'state': 'enroll', 'enroll': {
-            'qrCodeDataUrl': reset.get('qrCodeDataUrl'), 'recoveryCodes': reset.get('recoveryCodes'),
-            'expiresAt': reset.get('expiresAt'),
-        }}
+        return _enroll_qr(client.auth.reset_secret(user))
 
 
 _STATE_MAP = {'PENDING': 'waiting', 'CONFIRMED': 'approved', 'REJECTED': 'rejected', 'EXPIRED': 'expired'}

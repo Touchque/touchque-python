@@ -27,7 +27,10 @@ from .safe_guard import (
     safe_approval_message, safe_display_digest, safe_governance_hash, safe_schedule_call, safe_tx_hash, verify_safe_approval,
     with_safe_approvals,
 )
-from .guard import run_guard, guard_input_from_headers, silent_input_from_headers, BROWSER_HEADER
+from .guard import (
+    run_guard, is_status_poll, guard_input_from_headers, guard_response_headers, silent_input_from_headers, BeforeStart,
+    BROWSER_HEADER,
+)
 from .resources.risk import parse_risk_check
 from .resources.recovery import is_recovery_open
 from .resources.mobile import is_mobile_push_expired, mobile_push_from_webhook
@@ -89,7 +92,10 @@ __all__ = [
     'with_safe_approvals',
     'safe_schedule_call',
     'run_guard',
+    'is_status_poll',
+    'BeforeStart',
     'guard_input_from_headers',
+    'guard_response_headers',
     'silent_input_from_headers',
     'BROWSER_HEADER',
     'parse_risk_check',

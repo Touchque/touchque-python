@@ -43,8 +43,11 @@ from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.urls import re_path
 from django.views.decorators.csrf import csrf_exempt as _csrf_exempt
 
-from ..client import Touchque, get_default_client
-from ..guard import SilentSignIn, guard_input_from_headers, run_guard, silent_input_from_headers
+from ..client import Touchque
+from ..guard import (
+    ErrorBody, SilentSignIn, guard_input_from_headers, guard_response_body, guard_response_headers, run_guard,
+    silent_input_from_headers,
+)
 from ..relay import RelayHandler
 from ..steps import LoginDetails
 
@@ -67,8 +70,14 @@ def require_touchque(
     reference_id: Optional[Callable[[HttpRequest], Optional[str]]] = None,
     silent_sign_in: SilentSignIn = False,
     context: Optional[Callable[[HttpRequest], Optional[Dict[str, Any]]]] = None,
+    error_body: Optional[ErrorBody] = None,
 ) -> Callable:
     """
+    ``client``: default ``get_default_client()``, built from ``TQ_API_KEY`` /
+    ``TQ_API_SECRET`` on the first request. Without them the view answers
+    500 ``misconfigured`` (401 when nobody is signed in) and never runs;
+    nothing is raised at import or on a request.
+
     ``user``: who is approving, given the request. Default:
     ``request.user.email`` (Django auth). For the login step, return the user
     who just passed your password check, e.g.
@@ -86,6 +95,16 @@ def require_touchque(
 
     ``context``: for your Touchque Actions only (``event.context``), e.g. the
     user's roles. Never shown on the phone.
+
+    ``error_body``: your app's own error shape for the refusals (401, 403,
+    408, 423, 429, 500, 503), e.g.
+    ``error_body=lambda r: {'message': r['message'], 'code': r['code']}``.
+    It gets ``{'status', 'code', 'message', 'touchque'}``; what it returns
+    counts by its JSON encoding (``DjangoJSONEncoder``): an object (a dict, a
+    dataclass, a pydantic model) is sent with ``touchque`` set to the step,
+    anything else as it is. Status and headers stay, and every refusal carries
+    ``X-Touchque-State`` (and ``X-Touchque-Reason``). Never called for a 202
+    step (see ``guard_response_body``).
     """
     user_of = user or _default_user
     tq = client
@@ -93,10 +112,9 @@ def require_touchque(
     def decorator(view: Callable) -> Callable:
         @functools.wraps(view)
         def wrapped(request: HttpRequest, *args: Any, **kwargs: Any) -> Any:
-            c = tq or get_default_client()
             uid = user_of(request)
             result = run_guard(
-                c, uid, action,
+                tq, uid, action,
                 details=details(request) if details else None,
                 reference_id=reference_id(request) if reference_id else None,
                 context=context(request) if context else None,
@@ -107,14 +125,18 @@ def require_touchque(
             if 'approved' in result:
                 request.touchque = result['approved']
                 return view(request, *args, **kwargs)
-            resp = JsonResponse(result['body'], status=result['status'])
-            resp['Cache-Control'] = 'no-store'
-            retry = result['body']['touchque'].get('retryAfter')
-            if retry:
-                resp['Retry-After'] = str(retry)
+            body = guard_response_body(result, error_body, encode=_encode)
+            resp = JsonResponse(body, status=result['status'], safe=False)
+            for name, value in guard_response_headers(result).items():
+                resp[name] = value
             return resp
         return wrapped
     return decorator
+
+
+def _encode(value: Any) -> str:
+    """How ``JsonResponse`` encodes a body."""
+    return json.dumps(value, cls=DjangoJSONEncoder)
 
 
 def _json_body(request: HttpRequest) -> Any:
