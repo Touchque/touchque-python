@@ -30,15 +30,13 @@ as one Blueprint - see ``touchque.relay.RelayHandler`` for every option:
     ), url_prefix='/touchque')
 """
 import functools
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from flask import Blueprint, abort, current_app, g, json, jsonify, request
 
 from ..client import Touchque
-from ..guard import (
-    ErrorBody, SilentSignIn, guard_input_from_headers, guard_response_body, guard_response_headers, run_guard,
-    silent_input_from_headers,
-)
+from ..guard import ErrorBody, SilentSignIn, guard_input_from_headers, run_guard, silent_input_from_headers
+from ..guard import guard_response as _guard_response
 from ..relay import RELAY_ROUTES, RelayHandler
 from ..steps import LoginDetails
 
@@ -50,6 +48,19 @@ def _default_user() -> Optional[str]:
     if isinstance(u, str):
         return u
     return getattr(u, 'email', None) or getattr(u, 'id', None) or getattr(u, 'username', None)
+
+
+def guard_response(result: Dict[str, Any], error_body: Optional[ErrorBody] = None) -> Tuple[int, Dict[str, str], Any]:
+    """What ``require_touchque`` sends for a ``run_guard`` result that is not
+    an approval, as ``(status, headers, body)``: ``touchque.guard_response``
+    with ``error_body``'s result encoded by your app's JSON provider (dates,
+    ``Decimal``, ``UUID``, dataclasses), as the decorator encodes it. For the
+    guard inside your own view::
+
+        status, headers, body = guard_response(result, error_body)
+        return jsonify(body), status, headers
+    """
+    return _guard_response(result, error_body, encode=json.dumps)
 
 
 def require_touchque(
@@ -93,8 +104,9 @@ def require_touchque(
     counts by Flask's JSON encoding: an object (a dict, a dataclass, a pydantic
     model) is sent with ``touchque`` set to the step, anything else as it is.
     Status and headers stay, and every refusal carries ``X-Touchque-State``
-    (and ``X-Touchque-Reason``). Never called for a 202 step (see
-    ``guard_response_body``).
+    (and ``X-Touchque-Reason``). Never called for a 202 step. For
+    ``run_guard`` in your own view, this module's ``guard_response`` gives
+    the same answer.
     """
     user_of = user or _default_user
     tq = client
@@ -116,9 +128,10 @@ def require_touchque(
                 g.touchque = result['approved']
                 return view(*args, **kwargs)
             # Encoded like the response (the app's JSON provider), so a value it cannot encode is caught.
-            resp = jsonify(guard_response_body(result, error_body, encode=json.dumps))
-            resp.status_code = result['status']
-            for name, value in guard_response_headers(result).items():
+            status, headers, body = guard_response(result, error_body)
+            resp = jsonify(body)
+            resp.status_code = status
+            for name, value in headers.items():
                 resp.headers[name] = value
             return resp
         return wrapped

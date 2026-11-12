@@ -9,7 +9,9 @@ from touchque import Config, Touchque
 from touchque.contrib.flask import require_touchque
 from touchque.testing import FakeTouchque
 from .fake_api import fake_api  # noqa: F401
-from .guard_helpers import MISCONFIGURED, NOT_SET_LINE, no_keys  # noqa: F401
+from .guard_helpers import (  # noqa: F401
+    ERROR_BODIES, GUARD_RESULTS, MISCONFIGURED, NOT_SET_LINE, no_keys, result_named, sent,
+)
 
 
 def make_app(tq, action='SEND_MONEY'):
@@ -267,3 +269,40 @@ def test_error_body_gets_a_deep_copy_of_the_step():
     assert res.status_code == 403 and res.headers['X-Touchque-State'] == 'rejected'
     assert res.get_json() == {'code': 'rejected', 'touchque': {
         'state': 'rejected', 'requestId': tq.requests[-1]['id'], 'details': [{'label': 'Amount', 'value': '5 EUR'}]}}
+
+
+# ── guard_response: the decorator sends what this module's helper gives ──
+
+@pytest.mark.parametrize('error_body_name', ERROR_BODIES)
+def test_the_decorator_sends_what_its_guard_response_gives(monkeypatch, error_body_name):
+    from touchque.contrib import flask as adapter
+    error_body = ERROR_BODIES[error_body_name]
+    for result_name in GUARD_RESULTS:
+        monkeypatch.setattr(adapter, 'run_guard', lambda *a, _name=result_name, **k: result_named(_name))
+        app = make_guarded_app([], client=FakeTouchque(), error_body=error_body)
+        res = app.test_client().post('/transfer', json={}, headers={'X-User': 'jane@acme.com'})
+        with app.app_context():  # as in a view: the app's JSON provider encodes
+            want = adapter.guard_response(result_named(result_name), error_body)
+        assert res.headers['Content-Type'] == 'application/json', result_name
+        assert sent(res.status_code, res.headers.get, res.get_json()) == want, result_name
+
+
+def test_dates_decimals_and_uuids_are_encoded_like_the_app_does():
+    """Not the default body: the decorator and this module's guard_response both use the app's JSON provider."""
+    from touchque.contrib import flask as adapter
+    step = {'state': 'rejected', 'requestId': 'r1'}
+    for name, want in (('datetime', {'code': 'rejected', 'at': 'Thu, 12 Nov 2026 10:05:00 GMT', 'touchque': step}),
+                       ('decimal', {'code': 'rejected', 'amount': '1.50', 'touchque': step}),
+                       ('uuid', {'code': 'rejected', 'id': '12345678-1234-5678-1234-567812345678', 'touchque': step})):
+        error_body = ERROR_BODIES[name]
+        app = make_guarded_app([], client=FakeTouchque(), error_body=error_body)
+        with app.app_context():
+            status, headers, body = adapter.guard_response(result_named('403 rejected'), error_body)
+        assert (status, body) == (403, want), name
+        original = adapter.run_guard
+        adapter.run_guard = lambda *a, **k: result_named('403 rejected')
+        try:
+            res = app.test_client().post('/transfer', json={}, headers={'X-User': 'jane@acme.com'})
+        finally:
+            adapter.run_guard = original
+        assert res.status_code == 403 and res.get_json() == want, name

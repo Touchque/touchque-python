@@ -1,3 +1,4 @@
+import threading
 from typing import Any, Dict, Optional
 
 from .config import Config
@@ -99,14 +100,42 @@ class Touchque:
 
 
 _default_client: Optional[Touchque] = None
+# Guards building and replacing the default client, so a client set during the first build is never lost.
+_default_lock = threading.Lock()
 
 
 def get_default_client() -> Touchque:
     """The client built from TQ_API_KEY / TQ_API_SECRET, created on first use
-    (raises ``TouchqueConfigException`` while they are not set). The adapters
-    use it when given no ``client``; ``touchque.testing.FakeTouchque().install()``
+    and kept, so the environment is read once per process unless
+    ``set_default_client`` resets it. Raises ``TouchqueConfigException``
+    while they are not set: call it at startup to fail fast. The adapters,
+    ``run_guard(None, ...)`` and ``is_status_poll(None, ...)`` use it when
+    given no ``client``; ``touchque.testing.FakeTouchque().install()``
     replaces it in tests."""
     global _default_client
-    if _default_client is None:
-        _default_client = Touchque()
-    return _default_client
+    client = _default_client
+    if client is not None:
+        return client
+    with _default_lock:  # built once, and never over a client set meanwhile
+        if _default_client is None:
+            _default_client = Touchque()
+        return _default_client
+
+
+def set_default_client(client: Optional[Touchque]) -> None:
+    """Makes ``client`` the default client (``get_default_client()``) that
+    the adapters, ``run_guard(None, ...)`` and ``is_status_poll(None, ...)``
+    use: your own ``Touchque`` (another ``Config``: base URL, timeout).
+    ``None`` forgets it, so the next call builds it again from
+    ``TQ_API_KEY`` / ``TQ_API_SECRET`` / ``TQ_API_URL`` (a test that changes
+    them, a rotated key). The SDK's own lines go to
+    ``logging.getLogger('touchque')`` whichever client is used."""
+    _swap_default_client(client)
+
+
+def _swap_default_client(client: Optional[Touchque]) -> Optional[Touchque]:
+    """Sets the default client under ``_default_lock``; returns the one it replaced."""
+    global _default_client
+    with _default_lock:
+        previous, _default_client = _default_client, client
+        return previous

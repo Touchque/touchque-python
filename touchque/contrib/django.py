@@ -36,7 +36,7 @@ or pass ``csrf_exempt=True`` if you protect them another way.
 """
 import functools
 import json
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
@@ -44,10 +44,8 @@ from django.urls import re_path
 from django.views.decorators.csrf import csrf_exempt as _csrf_exempt
 
 from ..client import Touchque
-from ..guard import (
-    ErrorBody, SilentSignIn, guard_input_from_headers, guard_response_body, guard_response_headers, run_guard,
-    silent_input_from_headers,
-)
+from ..guard import ErrorBody, SilentSignIn, guard_input_from_headers, run_guard, silent_input_from_headers
+from ..guard import guard_response as _guard_response
 from ..relay import RelayHandler
 from ..steps import LoginDetails
 
@@ -60,6 +58,22 @@ def _default_user(request: HttpRequest) -> Optional[str]:
         return u
     email = getattr(u, 'email', None)
     return email or getattr(u, 'username', None) or str(getattr(u, 'pk', '') or '') or None
+
+
+def guard_response(result: Dict[str, Any], error_body: Optional[ErrorBody] = None) -> Tuple[int, Dict[str, str], Any]:
+    """What ``require_touchque`` sends for a ``run_guard`` result that is not
+    an approval, as ``(status, headers, body)``: ``touchque.guard_response``
+    with ``error_body``'s result encoded by ``DjangoJSONEncoder`` (dates,
+    ``Decimal``, ``UUID``), as the decorator encodes it. For the guard inside
+    your own view::
+
+        status, headers, body = guard_response(result, error_body)
+        resp = JsonResponse(body, status=status, safe=False)
+        for name, value in headers.items():
+            resp[name] = value
+        return resp
+    """
+    return _guard_response(result, error_body, encode=_encode)
 
 
 def require_touchque(
@@ -104,7 +118,8 @@ def require_touchque(
     dataclass, a pydantic model) is sent with ``touchque`` set to the step,
     anything else as it is. Status and headers stay, and every refusal carries
     ``X-Touchque-State`` (and ``X-Touchque-Reason``). Never called for a 202
-    step (see ``guard_response_body``).
+    step. For ``run_guard`` in your own view, this module's ``guard_response``
+    gives the same answer.
     """
     user_of = user or _default_user
     tq = client
@@ -125,9 +140,9 @@ def require_touchque(
             if 'approved' in result:
                 request.touchque = result['approved']
                 return view(request, *args, **kwargs)
-            body = guard_response_body(result, error_body, encode=_encode)
-            resp = JsonResponse(body, status=result['status'], safe=False)
-            for name, value in guard_response_headers(result).items():
+            status, headers, body = guard_response(result, error_body)
+            resp = JsonResponse(body, status=status, safe=False)
+            for name, value in headers.items():
                 resp[name] = value
             return resp
         return wrapped

@@ -127,8 +127,7 @@ def test_login_400_without_username(fake_api):
 def test_pre_auth_login_never_hands_an_unlinked_user_a_linking_qr(fake_api):
     res = call(make(real_tq(fake_api), rate_limit=False), 'POST', '/login', body={'externalUsername': 'new@example.com'})
     assert res.status == 202
-    assert res.body['touchque']['state'] == 'enroll'
-    assert 'enroll' not in res.body['touchque']
+    assert res.body['touchque'] == {'state': 'enroll', 'reason': 'enrollment_off'}  # the page stops polling
     assert not [c for c in fake_api.calls() if c['path'] == '/auth/generate-secret']
 
 
@@ -693,3 +692,16 @@ def test_relay_refusals_carry_the_touchque_state_headers():
     assert res.status == 403
     assert res.headers['X-Touchque-State'] == 'rejected' and 'X-Touchque-Reason' not in res.headers
     assert res.headers['Cache-Control'] == 'no-store'
+
+
+def test_a_relay_without_a_client_follows_the_default_client(monkeypatch):
+    """Built with client=None, the relay looks the default client up on every request, so installing
+    another fake (or set_default_client) reaches it."""
+    from touchque.testing import FakeTouchque
+    monkeypatch.setattr('touchque.client._default_client', None)
+    h = make(None, rate_limit=False)
+    with FakeTouchque() as first:
+        assert call(h, 'POST', '/login', body={'externalUsername': 'jane@acme.com'}).status == 202
+    with FakeTouchque() as second:
+        assert call(h, 'POST', '/login', body={'externalUsername': 'jane@acme.com'}).status == 202
+    assert len(first.requests) == 1 and len(second.requests) == 1

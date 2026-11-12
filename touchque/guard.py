@@ -9,8 +9,16 @@ Contract (same in every Touchque server SDK):
   not set up / API down   -> 500 misconfigured / 503 unavailable
 
 While the first-time QR is up, polls answer {"touchque": {"state": "enroll",
-"expiresAt": ...}} without "enroll": keep showing the QR you have. A new QR
-comes with enroll.qrCodeDataUrl when the old one expired.
+"expiresAt": ...}} without "enroll": keep showing the QR you have. About 15 s
+before it expires, a poll brings a new QR in enroll.qrCodeDataUrl with new
+recovery codes; the old QR and the old codes stop working.
+
+While a push waits, every poll carries the request's expiresAt in the
+"waiting" / "passkey_required" step: the live one from the status answer (a
+passkey escalation extends it), else the one in the token (claim "rx").
+
+enroll=False: a user with no phone gets {"state": "enroll", "reason":
+"enrollment_off"} (still 202), never a QR. Stop polling.
 
 Request headers the browser sends back:
   X-Touchque-Token         the token from the last response
@@ -28,7 +36,7 @@ import logging
 import os
 import sys
 import time
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 from .exceptions import TouchqueAPIException, TouchqueConfigException, TouchqueNetworkException
 from .steps import (
@@ -139,10 +147,33 @@ def is_status_poll(client: Optional['Touchque'], user: Optional[str], action: st
     return bool(claims.get('rid')) and claims.get('st') in ('waiting', 'passkey_required', 'offline')
 
 
+def _ms_claim(claims: Dict[str, Any], name: str) -> Optional[int]:
+    """A time claim of a token (ms since the epoch), or None when it has none."""
+    ms = claims.get(name)
+    return int(ms) if isinstance(ms, (int, float)) and not isinstance(ms, bool) and ms > 0 else None
+
+
 def _enroll_expiry_claim(claims: Dict[str, Any]) -> Optional[int]:
     """The first-time QR's expiry (claim ``ee``, ms since the epoch) of an ``enroll`` token, or None."""
-    ee = claims.get('ee')
-    return int(ee) if isinstance(ee, (int, float)) and not isinstance(ee, bool) and ee > 0 else None
+    return _ms_claim(claims, 'ee')
+
+
+def _request_expiry_ms(bound: Dict[str, Any], live: Any = None) -> Optional[int]:
+    """The bound request's expiry, ms since the epoch: the live ``expiresAt``
+    of the status answer when it parses (a Vishing Shield escalation extends
+    it), else the token's claim ``rx``; None when neither (a 5.1 token)."""
+    ms = _iso_ms(live)
+    return ms if ms is not None else _ms_claim(bound, 'rx')
+
+
+def _with_request_expiry(step: Dict[str, Any], bound: Dict[str, Any], live: Any = None) -> Dict[str, Any]:
+    """A ``waiting`` / ``passkey_required`` step of the bound token's request,
+    with the request's ``expiresAt`` (``_request_expiry_ms``) when it is known.
+    The token issued for it carries the same value as its claim ``rx``."""
+    ms = _request_expiry_ms(bound, live)
+    if ms is not None:
+        step['expiresAt'] = _iso_from_ms(ms)
+    return step
 
 
 def run_guard(
@@ -166,13 +197,17 @@ def run_guard(
     """Runs one step of the guard. Returns either
     ``{"approved": {...}, "status": 200}`` (run your protected action) or
     ``{"status": <code>, "body": {"touchque": step, "token": ...}}``
-    (send that JSON body with that status code). API errors and a missing
-    setup answer 503 ``unavailable`` / 500 ``misconfigured`` instead of raising.
+    (send that JSON body with that status code: ``guard_response`` gives the
+    status, headers and body). API errors and a missing setup answer 503
+    ``unavailable`` / 500 ``misconfigured`` instead of raising.
 
     ``client``: your ``Touchque``, or ``None`` for ``get_default_client()``,
-    built from ``TQ_API_KEY`` / ``TQ_API_SECRET`` on first use. Without them
-    the answer is 500 ``misconfigured`` (401 when ``user`` is empty), logged
-    once per process.
+    built from ``TQ_API_KEY`` / ``TQ_API_SECRET`` on first use and kept once
+    built. Without them the answer is 500 ``misconfigured`` (401 when ``user``
+    is empty), logged once per process, and the next request tries again.
+
+    ``enroll=False``: never a first-time QR. A user with no phone gets
+    ``{'state': 'enroll', 'reason': 'enrollment_off'}`` (202): stop polling.
 
     ``browser_proof``: the browser's device-bound key proof
     (``X-Touchque-Browser``), passed through untouched and attached to the
@@ -222,8 +257,14 @@ def run_guard(
             ee = _iso_ms(qr.get('expiresAt'))
             if ee is not None:
                 claims['ee'] = ee  # the first-time QR's expiry: polls keep it until then
+        if step['state'] in ('waiting', 'passkey_required'):
+            rx = _iso_ms(step.get('expiresAt'))
+            if rx is not None:
+                claims['rx'] = rx  # the request's expiry: every poll repeats it
         if extra:
             claims.update(extra)
+        if claims.get('rx') is None:
+            claims.pop('rx', None)
         signed = sign_guard_token(secret, claims)
         return {'status': _STATUS[step['state']], 'body': {'touchque': step, 'token': signed}}
 
@@ -251,16 +292,19 @@ def run_guard(
             if res.get('reason') == 'invalid_code' and not is_totp:
                 return issue({'state': 'offline', 'offline': {'challengeId': str(bound.get('oc')),
                                                                 'attemptsLeft': res.get('attemptsLeft')}},
-                             {'oc': bound.get('oc'), 'rid': bound.get('rid'), 'n': bound.get('n')})
+                             {'oc': bound.get('oc'), 'rid': bound.get('rid'), 'n': bound.get('n'),
+                              'rx': bound.get('rx')})
             if res.get('reason') == 'invalid_code':
                 return issue({'state': 'offline', 'reason': 'invalid_code'},
-                             {'oc': bound.get('oc'), 'rid': bound.get('rid'), 'n': bound.get('n')})
+                             {'oc': bound.get('oc'), 'rid': bound.get('rid'), 'n': bound.get('n'),
+                              'rx': bound.get('rx')})
             # The phone rejected the push this QR belongs to: the whole sign-in is over.
             if res.get('reason') == 'request_rejected':
                 return issue({'state': 'rejected', 'requestId': bound.get('rid'), 'reason': 'request_rejected'})
             # The push now waits for a passkey (Vishing Shield): no code may finish it.
             if res.get('reason') == 'passkey_required' and bound.get('rid'):
-                return issue({'state': 'passkey_required', 'requestId': bound['rid'], 'number': bound.get('n')}, {'n': bound.get('n')})
+                return issue(_with_request_expiry({'state': 'passkey_required', 'requestId': bound['rid'],
+                                                   'number': bound.get('n')}, bound), {'n': bound.get('n')})
             return issue({'state': 'expired' if res.get('reason') == 'expired' else 'blocked',
                            'reason': res.get('reason') or 'offline_failed'})
 
@@ -278,13 +322,15 @@ def run_guard(
                 if ch.get('challengeCode'):
                     offline_step['challengeCode'] = ch['challengeCode']
                 return issue({'state': 'offline', 'offline': offline_step},
-                             {'rid': rid, 'n': ch.get('challengeCode') or (bound or {}).get('n')})
+                             {'rid': rid, 'n': ch.get('challengeCode') or (bound or {}).get('n'),
+                              'rx': (bound or {}).get('rx')})
             except TouchqueAPIException as err:
                 if err.status == 409 and (err.code or (err.data or {}).get('error')) == 'request_rejected':
                     return issue({'state': 'rejected', 'requestId': (bound or {}).get('rid'), 'reason': 'request_rejected'})
                 # The push it would follow now waits for a passkey (Vishing Shield): no QR, run the passkey.
                 if (bound or {}).get('rid') and (err.code or (err.data or {}).get('error')) == 'passkey_required':
-                    return issue({'state': 'passkey_required', 'requestId': bound['rid'], 'number': bound.get('n')}, {'n': bound.get('n')})
+                    return issue(_with_request_expiry({'state': 'passkey_required', 'requestId': bound['rid'],
+                                                       'number': bound.get('n')}, bound), {'n': bound.get('n')})
                 if err.status is not None and err.status < 500:
                     return issue({'state': 'blocked', 'reason': err.code or (err.data or {}).get('error') or 'offline_unavailable'})
                 raise
@@ -303,14 +349,20 @@ def run_guard(
                     raise
             # The push behind the QR was moved to a passkey after a tap during a call (Vishing Shield):
             # the QR's code would be refused now, so switch to the passkey.
+            live = now.get('expiresAt')  # the request's live expiry: a passkey escalation extends it
             if bound.get('st') == 'offline' and now['state'] == 'passkey_required':
-                return issue({'state': 'passkey_required', 'requestId': bound['rid'], 'number': bound.get('n')}, {'n': bound.get('n')})
+                return issue(_with_request_expiry({'state': 'passkey_required', 'requestId': bound['rid'],
+                                                   'number': bound.get('n')}, bound, live), {'n': bound.get('n')})
             if bound.get('st') == 'offline' and now['state'] in ('waiting', 'expired'):
                 # Still (or no longer) pending: nothing changed for the user — keep showing the QR they have.
                 return issue({'state': 'offline', 'offline': {'challengeId': str(bound.get('oc'))}},
-                             {'oc': bound.get('oc'), 'rid': bound['rid'], 'n': bound.get('n')})
+                             {'oc': bound.get('oc'), 'rid': bound['rid'], 'n': bound.get('n'),
+                              'rx': _request_expiry_ms(bound, live)})
             if now['state'] in ('waiting', 'passkey_required'):
-                waiting = {'state': now['state'], 'requestId': bound['rid'], 'number': bound.get('n')}
+                # Every poll carries the request's expiresAt (the live one, else claim rx), so a page reading the
+                # latest answer stops in time.
+                waiting = _with_request_expiry({'state': now['state'], 'requestId': bound['rid'],
+                                                'number': bound.get('n')}, bound, live)
                 if bound.get('cc'):
                     waiting['caseCode'] = bound['cc']
                 return issue(waiting, {'n': bound.get('n')})
@@ -476,6 +528,28 @@ def guard_response_body(result: Dict[str, Any], error_body: Optional[ErrorBody] 
         return _custom_body(result, error_body(_refusal(result)), encode)
     except Exception as err:  # noqa: BLE001 - your callback must not turn a refusal into a crash
         return _error_body_failed(result, err)
+
+
+def guard_response(result: Dict[str, Any], error_body: Optional[ErrorBody] = None,
+                   encode: Optional[Callable[[Any], str]] = None) -> Tuple[int, Dict[str, str], Any]:
+    """The HTTP answer to a ``run_guard`` result that is not an approval, as
+    ``(status, headers, body)``. Send ``body`` as JSON with that status and
+    those headers. ``headers`` are ``guard_response_headers(result)`` and
+    ``body`` is ``guard_response_body(result, error_body, encode)``: the
+    guard's body, or for a refusal (status >= 400) what ``error_body`` makes
+    of it, as JSON data. Raises ``ValueError`` for an approval: run your
+    action instead.
+
+    What ``error_body`` returns is encoded with the standard ``json`` module
+    (dataclasses and pydantic models as their fields) unless you pass
+    ``encode``, so a ``datetime``, ``Decimal`` or ``UUID`` in it sends the
+    default body here. On Flask, Django and FastAPI use the adapter's own
+    helper, which encodes like the adapter: ``touchque.contrib.flask.guard_response``,
+    ``touchque.contrib.django.guard_response`` and the awaitable
+    ``touchque.contrib.fastapi.guard_response``."""
+    if 'approved' in result:
+        raise ValueError('guard_response: the result is an approval; run the protected action instead')
+    return result['status'], guard_response_headers(result), guard_response_body(result, error_body, encode)
 
 
 def _silent_approval(client: 'Touchque', user: str, action: str, browser_proof: str, ip: Optional[str],

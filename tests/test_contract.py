@@ -1,15 +1,17 @@
 """Contract tests against the shared fake Touchque API — a real HTTP round
 trip, so request signing is verified too (not just mocked). Same scenarios
 as the Node SDK's step-up tests."""
+import logging
 import time
 
 import pytest
 
-from touchque import Config, Touchque
+from touchque import Config, Touchque, guard_response
 from touchque.exceptions import TouchqueConfigException
 from touchque.guard import is_status_poll, run_guard
-from touchque.steps import _iso_ms, verify_guard_token
+from touchque.steps import _iso_from_ms, _iso_ms, sign_guard_token, verify_guard_token
 from .fake_api import fake_api  # noqa: F401 (fixture)
+from .guard_helpers import MISCONFIGURED, NOT_SET_LINE, no_keys  # noqa: F401 (fixture)
 
 
 def client_for(api) -> Touchque:
@@ -299,7 +301,7 @@ def test_an_enroll_token_without_an_expiry_starts_again(fake_api):
     api = fake_api
     tq = client_for(api)
     old = run_guard(tq, 'new@acme.com', 'LOGIN', enroll=False)
-    assert old['body']['touchque'] == {'state': 'enroll'}
+    assert old['body']['touchque'] == {'state': 'enroll', 'reason': 'enrollment_off'}
     assert 'ee' not in verify_guard_token('test_secret', old['body']['token'])
     assert is_status_poll(tq, 'new@acme.com', 'LOGIN', token=old['body']['token']) is False
     again = run_guard(tq, 'new@acme.com', 'LOGIN', token=old['body']['token'])
@@ -367,3 +369,156 @@ def test_before_start_runs_once_only_when_an_enroll_token_starts(fake_api):
     gone = run_guard(tq, 'gone@acme.com', 'LOGIN', token=fresh, before_start=hook)
     assert gone['body']['touchque']['enroll']['qrCodeDataUrl'] and len(seen) == 3
     assert run_guard(tq, 'gone@acme.com', 'LOGIN', before_start=hook)['status'] == 202 and len(seen) == 3
+
+
+# ── 5.2: the default client, polls that repeat expiresAt, enrollment_off ──
+
+def test_run_guard_with_no_client_uses_the_default_one(fake_api, no_keys, monkeypatch, caplog):
+    with caplog.at_level(logging.ERROR, logger='touchque'):
+        for _ in range(2):
+            assert run_guard(None, 'jane@acme.com', 'LOGIN') == {'status': 500, 'body': MISCONFIGURED}
+        assert run_guard(None, None, 'LOGIN')['status'] == 401
+        assert is_status_poll(None, 'jane@acme.com', 'LOGIN', token='v1.e30.x') is False
+    assert [r.getMessage() for r in caplog.records if 'TQ_API_KEY' in r.getMessage()] == [NOT_SET_LINE]
+
+    # The keys arrive: the next request builds the default client (a failed build is not kept).
+    monkeypatch.setenv('TQ_API_KEY', 'tq_test_key')
+    monkeypatch.setenv('TQ_API_SECRET', 'test_secret')
+    monkeypatch.setenv('TQ_API_URL', fake_api.base_url)
+    fake_api.link('jane@acme.com')
+    first = run_guard(None, 'jane@acme.com', 'LOGIN')
+    assert first['status'] == 202 and first['body']['touchque']['state'] == 'waiting'
+    assert is_status_poll(None, 'jane@acme.com', 'LOGIN', token=first['body']['token']) is True
+    fake_api.approve()
+    done = run_guard(None, 'jane@acme.com', 'LOGIN', token=first['body']['token'])
+    assert done['status'] == 200 and done['approved']['user'] == 'jane@acme.com'
+
+
+def test_waiting_polls_repeat_the_requests_expires_at(fake_api):
+    fake_api.link('jane@acme.com')
+    tq = client_for(fake_api)
+    first = run_guard(tq, 'jane@acme.com', 'LOGIN')
+    expires_at = first['body']['touchque']['expiresAt']
+    rx = _iso_ms(expires_at)
+    assert rx and verify_guard_token('test_secret', first['body']['token'])['rx'] == rx
+
+    token = first['body']['token']
+    for _ in range(2):  # every poll, not only the first answer
+        poll = run_guard(tq, 'jane@acme.com', 'LOGIN', token=token)
+        assert poll['status'] == 202
+        assert poll['body']['touchque']['state'] == 'waiting' and poll['body']['touchque']['expiresAt'] == expires_at
+        token = poll['body']['token']
+        assert verify_guard_token('test_secret', token)['rx'] == rx
+
+
+def test_a_poll_after_a_passkey_escalation_carries_the_extended_expiry(fake_api):
+    """Vishing Shield: the escalation keeps the request open 180 s for the ceremony; the poll answers that,
+    not the push's first expiry, and the token keeps it as rx for the polls after it."""
+    fake_api.link('jane@acme.com')
+    tq = client_for(fake_api)
+    first = run_guard(tq, 'jane@acme.com', 'LOGIN')
+    pushed = _iso_ms(first['body']['touchque']['expiresAt'])
+    fake_api.escalate()
+    passkey = run_guard(tq, 'jane@acme.com', 'LOGIN', token=first['body']['token'])
+    step = passkey['body']['touchque']
+    extended = _iso_ms(step['expiresAt'])
+    assert step['state'] == 'passkey_required'
+    assert extended - pushed > 100000 and extended - time.time() * 1000 > 170000  # now + 180 s, not the push's 30 s
+    assert verify_guard_token('test_secret', passkey['body']['token'])['rx'] == extended
+    again = run_guard(tq, 'jane@acme.com', 'LOGIN', token=passkey['body']['token'])
+    assert again['body']['touchque']['state'] == 'passkey_required'
+    assert again['body']['touchque']['expiresAt'] == step['expiresAt']
+
+
+def test_passkey_required_polls_repeat_the_requests_expires_at(fake_api):
+    fake_api.link('jane@acme.com')
+    fake_api.opts(passkeyOnly=True)
+    tq = client_for(fake_api)
+    first = run_guard(tq, 'jane@acme.com', 'LOGIN')
+    step = first['body']['touchque']
+    assert step['state'] == 'passkey_required' and step['expiresAt']
+    poll = run_guard(tq, 'jane@acme.com', 'LOGIN', token=first['body']['token'])
+    assert poll['body']['touchque']['state'] == 'passkey_required'
+    assert poll['body']['touchque']['expiresAt'] == _iso_from_ms(_iso_ms(step['expiresAt']))
+
+
+def test_the_offline_qr_keeps_the_request_expiry_and_a_switch_to_a_passkey_answers_the_live_one(fake_api):
+    fake_api.link('jane@acme.com')
+    tq = client_for(fake_api)
+    first = run_guard(tq, 'jane@acme.com', 'LOGIN')
+    expires_at = first['body']['touchque']['expiresAt']
+    offline = run_guard(tq, 'jane@acme.com', 'LOGIN', token=first['body']['token'], offline=True)
+    assert offline['body']['touchque']['state'] == 'offline'
+    assert 'expiresAt' not in offline['body']['touchque']  # the offline step is the QR's own
+    assert verify_guard_token('test_secret', offline['body']['token'])['rx'] == _iso_ms(expires_at)
+    kept = run_guard(tq, 'jane@acme.com', 'LOGIN', token=offline['body']['token'])
+    assert kept['body']['touchque']['state'] == 'offline'
+    assert verify_guard_token('test_secret', kept['body']['token'])['rx'] == _iso_ms(expires_at)
+    fake_api.escalate()
+    passkey = run_guard(tq, 'jane@acme.com', 'LOGIN', token=kept['body']['token'])
+    step = passkey['body']['touchque']
+    assert step['state'] == 'passkey_required' and step['requestId'] == first['body']['touchque']['requestId']
+    assert _iso_ms(step['expiresAt']) - _iso_ms(expires_at) > 100000  # the escalation's 180 s
+
+
+def test_without_a_live_expiry_polls_carry_rx_and_a_5_1_token_none(monkeypatch):
+    """A status answer without expiresAt: the poll falls back to the token's rx; a token without rx (5.1)
+    answers without expiresAt, as before."""
+    from touchque.testing import FakeTouchque
+    tq = FakeTouchque()
+    status = tq.login.status
+    monkeypatch.setattr(tq.login, 'status', lambda rid: {k: v for k, v in status(rid).items() if k != 'expiresAt'})
+    first = run_guard(tq, 'jane@acme.com', 'LOGIN')
+    expires_at = first['body']['touchque']['expiresAt']
+    poll = run_guard(tq, 'jane@acme.com', 'LOGIN', token=first['body']['token'])
+    assert poll['body']['touchque']['expiresAt'] == expires_at
+    assert verify_guard_token('fake_secret', poll['body']['token'])['rx'] == _iso_ms(expires_at)
+
+    claims = verify_guard_token('fake_secret', first['body']['token'])
+    del claims['rx']
+    old = run_guard(tq, 'jane@acme.com', 'LOGIN', token=sign_guard_token('fake_secret', claims))  # a 5.1 token
+    assert old['status'] == 202 and old['body']['touchque']['state'] == 'waiting'
+    assert 'expiresAt' not in old['body']['touchque']
+    assert 'rx' not in verify_guard_token('fake_secret', old['body']['token'])
+
+
+def test_check_keeps_the_live_expiry(fake_api):
+    fake_api.link('jane@acme.com')
+    tq = client_for(fake_api)
+    step = tq.start('LOGIN', 'jane@acme.com')
+    assert tq.check(step['requestId'])['expiresAt'] == step['expiresAt']
+
+
+def test_enroll_false_answers_enrollment_off(fake_api):
+    tq = client_for(fake_api)
+    first = run_guard(tq, 'new@acme.com', 'LOGIN', enroll=False)
+    assert first['status'] == 202
+    assert first['body']['touchque'] == {'state': 'enroll', 'reason': 'enrollment_off'}
+    poll = run_guard(tq, 'new@acme.com', 'LOGIN', enroll=False, token=first['body']['token'])
+    assert poll['status'] == 202
+    assert poll['body']['touchque'] == {'state': 'enroll', 'reason': 'enrollment_off'}
+    assert '/auth/generate-secret' not in fake_api.paths() and '/auth/secret/reset' not in fake_api.paths()
+    assert guard_response(poll)[1] == {'Cache-Control': 'no-store'}  # a 202: no refusal headers
+
+
+def test_guard_response_is_status_headers_and_body(fake_api):
+    fake_api.link('jane@acme.com')
+    tq = client_for(fake_api)
+    first = run_guard(tq, 'jane@acme.com', 'LOGIN')
+    assert guard_response(first) == (202, {'Cache-Control': 'no-store'}, first['body'])
+    fake_api.reject()
+    refused = run_guard(tq, 'jane@acme.com', 'LOGIN', token=first['body']['token'])
+    step = refused['body']['touchque']
+    assert guard_response(refused, lambda r: {'code': r['code']}) == (
+        403, {'Cache-Control': 'no-store', 'X-Touchque-State': 'rejected'}, {'code': 'rejected', 'touchque': step})
+    fake_api.opts(rateLimited=True)
+    limited = run_guard(tq, 'jane@acme.com', 'LOGIN')
+    assert guard_response(limited, lambda r: r['message']) == (
+        429, {'Cache-Control': 'no-store', 'Retry-After': '60', 'X-Touchque-State': 'rate_limited'},
+        'Too many attempts. Try again later.')
+    fake_api.opts(rateLimited=False)
+    first = run_guard(tq, 'jane@acme.com', 'LOGIN')
+    fake_api.approve()
+    approved = run_guard(tq, 'jane@acme.com', 'LOGIN', token=first['body']['token'])
+    with pytest.raises(ValueError):
+        guard_response(approved)

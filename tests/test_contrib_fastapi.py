@@ -11,7 +11,9 @@ from touchque import Config, Touchque
 from touchque.contrib.fastapi import RequireTouchque, install_touchque_exception_handler
 from touchque.testing import FakeTouchque
 from .fake_api import fake_api  # noqa: F401
-from .guard_helpers import MISCONFIGURED, no_keys  # noqa: F401
+from .guard_helpers import (  # noqa: F401
+    ERROR_BODIES, GUARD_RESULTS, MISCONFIGURED, no_keys, result_named, sent,
+)
 
 
 def make_app(tq):
@@ -200,6 +202,70 @@ async def test_refusal_headers_and_error_body_by_its_json_encoding():
     res = await post(app, {'x-user': 'jane@acme.com', 'x-touchque-token': first.json()['token']})
     assert res.status_code == 403 and res.headers['x-touchque-state'] == 'rejected'
     assert 'x-touchque-reason' not in res.headers
+
+
+# ── guard_response: the dependency sends what this module's helper gives ──
+
+async def _async_error_body(refusal):
+    return {'message': refusal['message'], 'code': refusal['code']}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('error_body_name', [*ERROR_BODIES, 'async'])
+async def test_the_dependency_sends_what_its_guard_response_gives(monkeypatch, error_body_name):
+    from touchque.contrib import fastapi as adapter
+    error_body = ERROR_BODIES.get(error_body_name, _async_error_body)
+    for result_name in GUARD_RESULTS:
+        monkeypatch.setattr(adapter, 'run_guard', lambda *a, _name=result_name, **k: result_named(_name))
+        res = await post(make_guarded_app([], client=FakeTouchque(), error_body=error_body), {'x-user': 'jane@acme.com'})
+        want = await adapter.guard_response(result_named(result_name), error_body)
+        assert res.headers['content-type'] == 'application/json', result_name
+        assert sent(res.status_code, res.headers.get, res.json()) == want, result_name
+
+
+@pytest.mark.anyio
+async def test_a_route_with_the_guard_inside_answers_like_the_dependency():
+    """The README's own-route shape: run_guard in a thread, then the awaitable guard_response."""
+    import anyio
+    from fastapi.responses import JSONResponse
+    from touchque import guard_input_from_headers, run_guard
+    from touchque.contrib.fastapi import guard_response
+
+    app = make_guarded_app([], error_body=_async_error_body)
+
+    @app.post('/own')
+    async def own(request: Request):
+        result = await anyio.to_thread.run_sync(lambda: run_guard(
+            None, request.headers.get('x-user'), 'SEND_MONEY', **guard_input_from_headers(request.headers.get)))
+        if 'approved' not in result:
+            status, headers, body = await guard_response(result, _async_error_body)
+            return JSONResponse(body, status_code=status, headers=headers)
+        return {'done': True}
+
+    with FakeTouchque() as tq:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+            answers = {}
+            for path in ('/own', '/transfer'):
+                first = await client.post(path, json={}, headers={'x-user': 'jane@acme.com'})
+                assert first.status_code == 202 and first.json()['touchque']['state'] == 'waiting'
+                tq.reject()
+                refused = await client.post(path, json={}, headers={'x-user': 'jane@acme.com',
+                                                                     'x-touchque-token': first.json()['token']})
+                answers[path] = (refused.status_code, refused.headers['x-touchque-state'],
+                                 {k: v for k, v in refused.json().items() if k != 'touchque'})
+            assert answers['/own'] == answers['/transfer'] == (
+                403, 'rejected', {'message': 'The approval was rejected.', 'code': 'rejected'})
+
+
+@pytest.mark.anyio
+async def test_without_the_exception_handler_the_step_is_under_detail():
+    """Why install_touchque_exception_handler is required with @touchque/web: the page reads "touchque"."""
+    tq = FakeTouchque()
+    wrapped = await post(make_guarded_app([], flat=False, client=tq), {'x-user': 'jane@acme.com'})
+    assert wrapped.status_code == 202 and 'touchque' not in wrapped.json()
+    assert wrapped.json()['detail']['touchque']['state'] == 'waiting'
+    flat = await post(make_guarded_app([], client=tq), {'x-user': 'jane@acme.com'})
+    assert flat.status_code == 202 and flat.json()['touchque']['state'] == 'waiting'
 
 
 @pytest.fixture

@@ -25,6 +25,12 @@ It answers the calls the step-up guard makes (approval requests, first-time
 linking, offline codes, silent sign-in checks) and defining action types,
 like the shared fake API the SDKs' own tests use. Any other call raises
 ``TouchqueAPIException`` 404.
+
+Because the real guard runs, the answers are the guard's own: every poll of a
+waiting request carries its ``expiresAt``, and a guard that may not show a
+first-time QR (``run_guard(..., enroll=False)``, the relay's ``POST /login``
+without ``get_login_user``) answers a user with no phone
+``{"touchque": {"state": "enroll", "reason": "enrollment_off"}}``.
 """
 import json
 import re
@@ -60,8 +66,10 @@ class FakeTouchque(Touchque):
     the latest request (or one by its id), or set ``auto_approve`` to approve
     every request as it is made. ``requests`` lists the approval requests
     (``id``, ``user``, ``type``, ``details``, ``referenceId``, ``status``:
-    ``PENDING`` / ``CONFIRMED`` / ``REJECTED`` / ``EXPIRED``), ``calls`` every
-    API call (``method``, ``path``, ``body``), in order.
+    ``PENDING`` / ``CONFIRMED`` / ``REJECTED`` / ``EXPIRED``, and
+    ``expiresAt``: 30 seconds after it was made, carried by the step and
+    every poll), ``calls`` every API call (``method``, ``path``, ``body``), in
+    order. The fake never expires a request by time: call ``expire()``.
 
     ``number_match``: pushes ask for the number ``'47'``. ``secret_ttl_ms``:
     how long a first-time QR works (5 minutes, like the API). The offline code
@@ -147,16 +155,16 @@ class FakeTouchque(Touchque):
         """Makes this the default client (``get_default_client()``), which the
         adapters use when they were given no ``client``, until ``uninstall()``."""
         with self._lock:
+            previous = _client_module._swap_default_client(self)
             if self._replaced is _NOT_INSTALLED:
-                self._replaced = _client_module._default_client
-            _client_module._default_client = self
+                self._replaced = previous
         return self
 
     def uninstall(self) -> None:
         """Puts back the default client that ``install()`` replaced."""
         with self._lock:
             if self._replaced is not _NOT_INSTALLED:
-                _client_module._default_client = self._replaced
+                _client_module._swap_default_client(self._replaced)
                 self._replaced = _NOT_INSTALLED
 
     def __enter__(self) -> 'FakeTouchque':
@@ -197,12 +205,13 @@ class FakeTouchque(Touchque):
             'id': '00000000-0000-4000-8000-%012d' % self._seq, 'user': user, 'type': b.get('type'),
             'referenceId': b.get('referenceId'), 'details': b.get('details'), 'status': 'PENDING',
             'consumed': False, 'challengeCode': number, 'confirmedVia': None,
+            'expiresAt': _iso_from_ms(_now_ms() + 30000),
         }
         if self.auto_approve:
             r['status'], r['confirmedVia'] = 'CONFIRMED', 'DEVICE'
         self.requests.append(r)
         return 200, {'message': 'Request sent', 'requestId': r['id'], 'challengeCode': number,
-                     'expiresAt': _iso_from_ms(_now_ms() + 30000), 'caseCode': 'K7P-2QX'}
+                     'expiresAt': r['expiresAt'], 'caseCode': 'K7P-2QX'}
 
     @staticmethod
     def _approval(r: Dict[str, Any]) -> Dict[str, Any]:
@@ -219,7 +228,9 @@ class FakeTouchque(Touchque):
         r = self._find(request_id)
         if r is None:
             return 404, {'code': 'not_found'}
-        return 200, {'status': r['status'], 'consumed': r['consumed'], **self._approval(r)}
+        # Like the API: the request's live expiry, which the guard's polls carry.
+        return 200, {'status': r['status'], 'consumed': r['consumed'], 'expiresAt': r['expiresAt'],
+                     **self._approval(r)}
 
     def _login_consume(self, b: Dict[str, Any], request_id: str) -> _Answer:
         r = self._find(request_id)

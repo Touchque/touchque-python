@@ -1,7 +1,7 @@
 import logging as _logging
 
 from .config import Config
-from .client import Touchque, get_default_client
+from .client import Touchque, get_default_client, set_default_client
 from .exceptions import (
     TouchqueException,
     TouchqueAPIException,
@@ -28,8 +28,8 @@ from .safe_guard import (
     with_safe_approvals,
 )
 from .guard import (
-    run_guard, is_status_poll, guard_input_from_headers, guard_response_headers, silent_input_from_headers, BeforeStart,
-    BROWSER_HEADER,
+    run_guard, is_status_poll, guard_input_from_headers, guard_response, guard_response_body, guard_response_headers,
+    silent_input_from_headers, BeforeStart, ErrorBody, BROWSER_HEADER,
 )
 from .resources.risk import parse_risk_check
 from .resources.recovery import is_recovery_open
@@ -62,6 +62,7 @@ __all__ = [
     'Touchque',
     'Config',
     'get_default_client',
+    'set_default_client',
     'TouchqueException',
     'TouchqueAPIException',
     'TouchqueFeatureException',
@@ -95,7 +96,10 @@ __all__ = [
     'is_status_poll',
     'BeforeStart',
     'guard_input_from_headers',
+    'guard_response',
+    'guard_response_body',
     'guard_response_headers',
+    'ErrorBody',
     'silent_input_from_headers',
     'BROWSER_HEADER',
     'parse_risk_check',

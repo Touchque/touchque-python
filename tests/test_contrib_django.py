@@ -16,7 +16,9 @@ from touchque import Config, Touchque  # noqa: E402
 from touchque.contrib.django import require_touchque  # noqa: E402
 from touchque.testing import FakeTouchque  # noqa: E402
 from .fake_api import fake_api  # noqa: F401,E402
-from .guard_helpers import MISCONFIGURED, no_keys  # noqa: F401,E402
+from .guard_helpers import (  # noqa: F401,E402
+    ERROR_BODIES, GUARD_RESULTS, MISCONFIGURED, no_keys, result_named, sent,
+)
 
 
 def make_view(tq, action='SEND_MONEY'):
@@ -138,3 +140,30 @@ def test_refusal_headers_and_error_body_by_its_json_encoding():
     tq.reject()
     res = post(view, HTTP_X_USER='jane@acme.com', HTTP_X_TOUCHQUE_TOKEN=json.loads(first.content)['token'])
     assert res.status_code == 403 and res['X-Touchque-State'] == 'rejected' and not res.has_header('X-Touchque-Reason')
+
+
+# ── guard_response: the decorator sends what this module's helper gives ──
+
+@pytest.mark.parametrize('error_body_name', ERROR_BODIES)
+def test_the_decorator_sends_what_its_guard_response_gives(monkeypatch, error_body_name):
+    from touchque.contrib import django as adapter
+    error_body = ERROR_BODIES[error_body_name]
+    for result_name in GUARD_RESULTS:
+        monkeypatch.setattr(adapter, 'run_guard', lambda *a, _name=result_name, **k: result_named(_name))
+        res = post(make_guarded_view([], client=FakeTouchque(), error_body=error_body), HTTP_X_USER='jane@acme.com')
+        want = adapter.guard_response(result_named(result_name), error_body)
+        assert res['Content-Type'] == 'application/json', result_name
+        assert sent(res.status_code, lambda name: res[name] if res.has_header(name) else None,
+                    json.loads(res.content)) == want, result_name
+
+
+def test_the_core_helper_encodes_with_the_json_module_unless_given_encode():
+    from touchque import guard_response
+    from touchque.contrib import django as adapter
+    at = ERROR_BODIES['datetime']
+    default = guard_response(result_named('403 rejected'), at)  # the json module cannot encode a datetime
+    assert default[2] == GUARD_RESULTS['403 rejected']['body']
+    encoded = guard_response(result_named('403 rejected'), at, encode=adapter._encode)
+    assert encoded == adapter.guard_response(result_named('403 rejected'), at)
+    assert encoded[2] == {'code': 'rejected', 'at': '2026-11-12T10:05:00', 'touchque': {
+        'state': 'rejected', 'requestId': 'r1'}}

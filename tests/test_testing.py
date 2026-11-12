@@ -161,3 +161,73 @@ def test_is_status_poll_takes_the_default_client_like_run_guard(no_keys):
         token = run_guard(None, 'jane@acme.com', 'LOGIN')['body']['token']
         assert is_status_poll(None, 'jane@acme.com', 'LOGIN', token=token) is True
         assert is_status_poll(tq, 'jane@acme.com', 'LOGIN', token=token, ip='127.0.0.1') is True
+
+
+def test_polls_repeat_the_requests_expires_at():
+    tq = FakeTouchque()
+    http = make_app(tq).test_client()
+    first = send(http).get_json()
+    expires_at = first['touchque']['expiresAt']
+    assert expires_at == tq.requests[-1]['expiresAt']
+    poll = send(http, first['token']).get_json()
+    assert poll['touchque']['state'] == 'waiting' and poll['touchque']['expiresAt'] == expires_at
+    again = send(http, poll['token']).get_json()
+    assert again['touchque']['expiresAt'] == expires_at
+
+
+def test_a_guard_without_enrollment_answers_enrollment_off():
+    from touchque import run_guard
+    tq = FakeTouchque(linked=False)
+    first = run_guard(tq, 'new@acme.com', 'LOGIN', enroll=False)
+    assert first['status'] == 202
+    assert first['body']['touchque'] == {'state': 'enroll', 'reason': 'enrollment_off'}
+    assert [c['path'] for c in tq.calls] == ['/login/request']  # no first-time QR, no recovery codes
+
+
+def test_set_default_client_replaces_or_forgets_the_default_client(no_keys, monkeypatch):
+    from touchque import run_guard, set_default_client
+    tq = FakeTouchque()
+    set_default_client(tq)
+    assert get_default_client() is tq
+    first = run_guard(None, 'jane@acme.com', 'LOGIN')
+    assert first['status'] == 202 and tq.requests[-1]['user'] == 'jane@acme.com'
+
+    set_default_client(None)  # forgotten: the next call reads the environment again
+    assert run_guard(None, 'jane@acme.com', 'LOGIN')['status'] == 500  # no keys here
+    monkeypatch.setenv('TQ_API_KEY', 'tq_rotated')
+    monkeypatch.setenv('TQ_API_SECRET', 'rotated_secret')
+    rebuilt = get_default_client()
+    assert rebuilt is not tq and rebuilt.config.api_key == 'tq_rotated'
+    assert get_default_client() is rebuilt  # kept once built
+    monkeypatch.setenv('TQ_API_KEY', 'tq_rotated_again')
+    assert get_default_client().config.api_key == 'tq_rotated'  # read once per process...
+    set_default_client(None)
+    assert get_default_client().config.api_key == 'tq_rotated_again'  # ...unless reset
+
+
+def test_a_client_set_while_the_default_one_is_built_is_kept(no_keys, monkeypatch):
+    """get_default_client and set_default_client share one lock: a client set during the first build wins."""
+    import threading
+    from touchque import client as client_module, set_default_client
+    monkeypatch.setenv('TQ_API_KEY', 'tq_env')
+    monkeypatch.setenv('TQ_API_SECRET', 'env_secret')
+    building, release = threading.Event(), threading.Event()
+    real = client_module.Touchque
+
+    def slow_build(*args, **kwargs):
+        building.set()
+        release.wait(5)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(client_module, 'Touchque', slow_build)
+    builder = threading.Thread(target=get_default_client)
+    builder.start()
+    assert building.wait(5)
+    mine = FakeTouchque()
+    setter = threading.Thread(target=set_default_client, args=(mine,))
+    setter.start()
+    setter.join(0.2)  # unsynchronised, it would be done here and then lost to the build
+    release.set()
+    builder.join(5)
+    setter.join(5)
+    assert get_default_client() is mine

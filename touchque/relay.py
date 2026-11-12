@@ -249,10 +249,13 @@ class RelayHandler:
 
     @property
     def client(self) -> 'Touchque':
-        if self._client is None:
-            from .client import get_default_client
-            self._client = get_default_client()
-        return self._client
+        """The client given to the handler, else the default client, looked
+        up on every request (``get_default_client()`` keeps it process-wide),
+        so ``set_default_client`` and ``FakeTouchque.install()`` reach it."""
+        if self._client is not None:
+            return self._client
+        from .client import get_default_client
+        return get_default_client()
 
     # ── entry point ─────────────────────────────────────────────────────
     def handle(

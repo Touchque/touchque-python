@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 from .config import Config
 from .exceptions import TouchqueAPIException, TouchqueNetworkException, api_exception
 
-SDK_VERSION = '5.1.0'
+SDK_VERSION = '5.2.0'
 
 def _query_value(value: Any) -> Any:
     # The API reads only 'true' / 'false'; urlencode would send Python's 'True' / 'False'.

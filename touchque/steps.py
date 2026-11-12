@@ -70,6 +70,9 @@ def start(client: 'Touchque', action: str, user: str, details: Optional[LoginDet
           context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Starts an approval for `action` — never waits.
 
+    ``enroll=False``: a user with no phone linked gets
+    ``{'state': 'enroll', 'reason': 'enrollment_off'}`` instead of a first-time QR.
+
     ``browser_proof`` (silent sign-ins): the browser's device-bound key proof
     (``X-Touchque-Browser``), passed through untouched. Once the user
     approves, Touchque knows this browser."""
@@ -107,7 +110,8 @@ def start(client: 'Touchque', action: str, user: str, details: Optional[LoginDet
         why = {'caseCode': err.case_code} if err.case_code else {}
         if err.status == 404 and (code == 'device_not_linked' or 'linked device' in str(err).lower()):
             if not enroll:
-                return {'state': 'enroll'}
+                # No phone, and this guard may not show a QR: say so, so the page stops polling.
+                return {'state': 'enroll', 'reason': 'enrollment_off'}
             return _enroll_step(client, user)
         if err.status == 423:
             return {'state': 'frozen', 'retryAfter': err.retry_after, **why}
@@ -198,11 +202,15 @@ _STATE_MAP = {'PENDING': 'waiting', 'CONFIRMED': 'approved', 'REJECTED': 'reject
 
 
 def check(client: 'Touchque', request_id: str) -> Dict[str, Any]:
-    """Current state of a started approval."""
+    """Current state of a started approval, with the request's live
+    ``expiresAt`` when the API gives it (a Vishing Shield escalation to a
+    passkey extends it)."""
     s = client.login.status(request_id)
     state = 'passkey_required' if s.get('status') == 'PENDING' and s.get('requiresPasskey') \
         else _STATE_MAP.get(s.get('status'), 'waiting')
     step: Dict[str, Any] = {'state': state, 'requestId': request_id}
+    if isinstance(s.get('expiresAt'), str) and s['expiresAt']:
+        step['expiresAt'] = s['expiresAt']
     if state == 'approved' and s.get('assurance'):
         step['assurance'] = s['assurance']
     return step
