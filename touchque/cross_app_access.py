@@ -332,15 +332,21 @@ class IdJagVerifier:
 def _sent_url(url: str) -> str:
     # The URL requests puts on the wire for url, the htu of the SDK's own proofs: requests.Request's
     # prepare() rewrites it (dot segments removed, unreserved percent-escapes decoded, characters a path
-    # may not hold percent-encoded, an IDNA host), and a path that starts with // goes out from one /
-    # (requests.adapters.HTTPAdapter.request_url).
+    # may not hold percent-encoded, an IDNA host), and requests.adapters.HTTPAdapter.request_url gives the
+    # request target it sends. Asking the installed requests keeps the two equal across its versions:
+    # before 2.34 a path that starts with // went out from one /, from 2.34 on it goes out as it is.
     try:
-        prepared = requests.Request('POST', url).prepare().url
+        prepared = requests.Request('POST', url).prepare()
     except requests.exceptions.RequestException as err:  # such as a port above 65535
         raise TouchqueConfigException(f'{url} is not a URL requests can send to: {err}') from err
-    u = urlsplit(prepared)
-    path = '/' + u.path.lstrip('/') if u.path.startswith('//') else u.path
-    return urlunsplit((u.scheme, u.netloc, path, u.query, ''))
+    u = urlsplit(prepared.url)
+    adapter = requests.adapters.HTTPAdapter()
+    try:
+        target = adapter.request_url(prepared, {})
+    finally:
+        adapter.close()
+    path = target.split('?', 1)[0] if target.startswith('/') else u.path
+    return urlunsplit((u.scheme, u.netloc, path or '/', u.query, ''))
 
 
 def _field_values(r: requests.Response, name: str, split_joined: bool = False) -> List[str]:
