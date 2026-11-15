@@ -491,11 +491,34 @@ jag = request_id_jag(issuer='https://sso.touchque.com', client_id=client_id, cli
 tokens = redeem_id_jag(token_endpoint='https://auth.files.example/token', client_id='acme',
                        client_secret=files_secret, assertion=jag['assertion'])
 
-# Your own authorization server (jwt-bearer grant):
-claims = IdJagVerifier(issuer='https://sso.touchque.com', audience='https://auth.files.example') \
-    .verify(form['assertion'], client_id=authenticated_client_id)
+# Your own authorization server (jwt-bearer grant). Build the verifier once: its used-once jti store
+# and key cache live in the instance (several processes share used jtis through first_use=).
+verifier = IdJagVerifier(issuer='https://sso.touchque.com', audience='https://auth.files.example')
+claims = verifier.verify(form['assertion'], client_id=authenticated_client_id)
 
 verify_agent_card(card, card_url='https://agent.example/.well-known/agent-card.json')
+```
+
+DPoP binding (RFC 9449), optional: pass one key as `dpop_key=` to both calls (each sends a fresh proof) and the identity provider binds the ID-JAG to it (`cnf.jkt`), so a copy is useless without the key; `jag['dpop_bound']` says whether it did. When a token endpoint refuses with `use_dpop_nonce` and its `DPoP-Nonce` header holds one valid nonce (printable ASCII except space, `"` and `\`), the call sends the same request once more with a proof that carries that nonce; a missing, empty, repeated or invalid `DPoP-Nonce` gets no retry. A refusal keeps the latest valid nonce the server sent in `IdJagError.dpop_nonce`. The access token is DPoP-bound too: send it as `Authorization: DPoP <token>` with `DPoP: id_jag_dpop_proof(dpop_key, url, method=..., access_token=token)`. The proof's `htm` is the method trimmed and uppercased; its `htu` is the URL with the scheme and host lowercased, user info and the default port dropped, `/` for an empty path, the path kept as given and no query or fragment. Unbound ID-JAGs work as before. DPoP, `IdJagVerifier` and `verify_agent_card` need `pip install "touchque-authenticator[agent]"`.
+
+An authorization server of another company that accepts Touchque ID-JAGs must verify the DPoP proof itself (`typ` `dpop+jwt`, the signature with the `jwk` in it, `htm`, `htu`, `iat`, each `jti` once, and the nonce if it requires one) before it calls `verify()`, because `verify()` uses up the ID-JAG's `jti`: the other way round, a proof refused with `use_dpop_nonce` would leave the client's retry with the same ID-JAG refused as already used. It must also check `cnf.jkt`, refusing a bound ID-JAG unless the proof key's thumbprint matches; `verify()` does that part when you pass the proof's thumbprint as `dpop_jkt` (`jwk_thumbprint(jwk)` for P-256 and Ed25519 keys), and refuses a bound ID-JAG without it before using it up.
+
+```python
+import requests
+from touchque import create_id_jag_dpop_key, id_jag_dpop_proof
+
+dpop_key = create_id_jag_dpop_key()           # P-256; keep it in this process
+jag = request_id_jag(..., dpop_key=dpop_key)  # jag['dpop_bound']: the ID-JAG carries dpop_key.thumbprint
+tokens = redeem_id_jag(..., assertion=jag['assertion'], dpop_key=dpop_key)
+
+url = 'https://api.files.example/v1/files'
+proof = id_jag_dpop_proof(dpop_key, url, method='GET', access_token=tokens['access_token'])
+r = requests.get(url, headers={'Authorization': f"DPoP {tokens['access_token']}", 'DPoP': proof})
+# 401 with DPoP error="use_dpop_nonce": the same request with a new proof, nonce=r.headers['DPoP-Nonce']
+
+# Your authorization server: first your own check of the request's DPoP proof (and nonce), then
+claims = verifier.verify(form['assertion'], client_id=authenticated_client_id, dpop_jkt=proof_jkt)
+# claims['cnf_jkt']: the thumbprint the ID-JAG is bound to (None when unbound)
 ```
 
 ## Shared Signals (security events from Touchque SSO)

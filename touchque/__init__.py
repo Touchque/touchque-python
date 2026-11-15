@@ -48,7 +48,8 @@ from .agent_frameworks import (
 from .org_agent import TouchqueOrgAgent, file_token, github_actions_token
 from .mcp_auth import McpAuth, McpAuthError
 from .cross_app_access import (
-    ID_JAG_TOKEN_TYPE, IdJagError, IdJagVerifier, redeem_id_jag, request_id_jag,
+    ID_JAG_TOKEN_TYPE, IdJagDpopKey, IdJagError, IdJagVerifier, create_id_jag_dpop_key, id_jag_dpop_proof, redeem_id_jag,
+    request_id_jag,
 )
 from .security_events import (
     SECURITY_EVENT_TYPES, SecurityEvent, SecurityEventError, SecurityEventVerifier, poll_security_events,
@@ -134,6 +135,9 @@ __all__ = [
     'ID_JAG_TOKEN_TYPE',
     'IdJagError',
     'IdJagVerifier',
+    'IdJagDpopKey',
+    'create_id_jag_dpop_key',
+    'id_jag_dpop_proof',
     'SECURITY_EVENT_TYPES', 'SecurityEvent', 'SecurityEventError', 'SecurityEventVerifier', 'poll_security_events',
     'request_id_jag',
     'redeem_id_jag',
