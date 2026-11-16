@@ -7,7 +7,9 @@ FastAPI and Django adapters in ``touchque.contrib`` are thin wrappers over
 
 Routes (relative to wherever you mount the relay):
 
-  POST   /enroll/start                    (auth required) -> generate_secret response
+  POST   /enroll/start                    (auth required) -> generate_secret response, or reset_secret's
+                                          for a QR not scanned yet (both with the browser's IP and
+                                          User-Agent, as for POST /login)
   GET    /enroll/status                   (auth required) -> {linked, used, deviceId}
   POST   /login                           (pre-auth) -> 202 {touchque: step, token} until approved
   POST   /offline/challenge               (pre-auth, body.externalUsername) -> QR for a phone with no internet
@@ -174,7 +176,8 @@ class RelayHandler:
     minute). A dict with ``window_ms`` / ``per_ip`` / ``per_user`` overrides
     them; ``False`` turns the limiter off (if you already limit in front).
     The adapters use the framework's client address - make sure it is the
-    real client behind a proxy (e.g. werkzeug ``ProxyFix``).
+    real client behind a proxy (e.g. werkzeug ``ProxyFix``). Touchque gets
+    the same address, with the User-Agent, for each push and first-time QR.
 
     ``allow_offline_without_first_factor``: the offline routes answer 403
     ``OFFLINE_REQUIRES_FIRST_FACTOR`` unless ``get_login_user`` is set. Set
@@ -406,8 +409,12 @@ class _Ctx:
     def enroll_start(self) -> RelayResponse:
         user_id = self.require_user_id()
         tq = self.h.client
+        # The browser's address and User-Agent, as POST /login sends them, for the new QR and for
+        # its reset alike (each records its own): the phone shows where the QR was asked for before
+        # it links (2FA setup context).
+        browser = {'client_ip': self.ip, 'user_agent': self.user_agent}
         try:
-            return _json(tq.auth.generate_secret(user_id))
+            return _json(tq.auth.generate_secret(user_id, **browser))
         except Exception as error:  # noqa: BLE001 - mapped below, like the Node router
             # 409: either a QR was issued and not scanned yet (safe to issue a new one - no
             # phone to lose), or a phone is ALREADY linked. Replacing a linked phone must never
@@ -419,7 +426,7 @@ class _Ctx:
                     if current.get('used') or current.get('deviceId'):
                         return _json({'error': 'already_linked',
                                       'message': 'A phone is already linked to this account.'}, 409)
-                    return _json(tq.auth.reset_secret(user_id))
+                    return _json(tq.auth.reset_secret(user_id, **browser))
                 except Exception as retry_error:  # noqa: BLE001
                     return _relay_error(retry_error)
             return _relay_error(error)

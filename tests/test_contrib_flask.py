@@ -10,7 +10,8 @@ from touchque.contrib.flask import require_touchque
 from touchque.testing import FakeTouchque
 from .fake_api import fake_api  # noqa: F401
 from .guard_helpers import (  # noqa: F401
-    ERROR_BODIES, GUARD_RESULTS, MISCONFIGURED, NOT_SET_LINE, no_keys, result_named, sent,
+    BROWSER_UA, ERROR_BODIES, GUARD_RESULTS, MISCONFIGURED, NOT_SET_LINE, WSGI_ADDRESSES, browsers_sent, no_keys,
+    result_named, sent,
 )
 
 
@@ -306,3 +307,39 @@ def test_dates_decimals_and_uuids_are_encoded_like_the_app_does():
         finally:
             adapter.run_guard = original
         assert res.status_code == 403 and res.get_json() == want, name
+
+
+# ── 2FA setup context: a first-time QR gets the address and User-Agent the push gets ──
+
+@pytest.mark.parametrize('proxy,environ,headers,ip', WSGI_ADDRESSES)
+def test_a_first_time_qr_gets_the_address_and_user_agent_the_push_gets(proxy, environ, headers, ip):
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    tq = FakeTouchque()
+    tq.unlink('new@acme.com')
+    app = make_app(tq)
+    if proxy:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
+    client = app.test_client()
+    for user in ('jane@acme.com', 'new@acme.com'):  # jane has a phone (a push), new has none (the first-time QR)
+        client.post('/transfer', json={'amount': 5}, environ_base=environ,
+                    headers={'X-User': user, 'User-Agent': BROWSER_UA, **headers})
+    assert browsers_sent(tq) == [('/login/request', 'jane@acme.com', ip, BROWSER_UA),
+                                 ('/login/request', 'new@acme.com', ip, BROWSER_UA),
+                                 ('/auth/generate-secret', 'new@acme.com', ip, BROWSER_UA)]
+
+
+def test_a_new_first_time_qr_gets_the_browser_of_the_poll_that_makes_it():
+    firefox = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0'
+    tq = FakeTouchque(linked=False)
+    tq.secret_ttl_ms = 10000  # inside the 15 s margin: the next poll makes a new QR
+    client = make_app(tq).test_client()
+    first = client.post('/transfer', json={'amount': 5}, environ_base={'REMOTE_ADDR': '203.0.113.7'},
+                        headers={'X-User': 'new@acme.com', 'User-Agent': BROWSER_UA}).get_json()
+    renewed = client.post('/transfer', json={'amount': 5}, environ_base={'REMOTE_ADDR': '198.51.100.23'},
+                          headers={'X-User': 'new@acme.com', 'User-Agent': firefox,
+                                   'X-Touchque-Token': first['token']}).get_json()
+    assert renewed['touchque']['enroll']['qrCodeDataUrl'] != first['touchque']['enroll']['qrCodeDataUrl']
+    assert browsers_sent(tq)[-1] == ('/auth/secret/reset', 'new@acme.com', '198.51.100.23', firefox)
+    ctx = tq.auth.validate_secret(tq.setups[-1]['secret'])['setupContext']
+    assert (ctx['location']['city'], ctx['device']) == ('New York', {'browser': 'Firefox', 'os': 'Windows',
+                                                                     'model': None})

@@ -17,7 +17,7 @@ from touchque.contrib.django import require_touchque  # noqa: E402
 from touchque.testing import FakeTouchque  # noqa: E402
 from .fake_api import fake_api  # noqa: F401,E402
 from .guard_helpers import (  # noqa: F401,E402
-    ERROR_BODIES, GUARD_RESULTS, MISCONFIGURED, no_keys, result_named, sent,
+    BROWSER_UA, ERROR_BODIES, GUARD_RESULTS, MISCONFIGURED, browsers_sent, no_keys, result_named, sent,
 )
 
 
@@ -167,3 +167,17 @@ def test_the_core_helper_encodes_with_the_json_module_unless_given_encode():
     assert encoded == adapter.guard_response(result_named('403 rejected'), at)
     assert encoded[2] == {'code': 'rejected', 'at': '2026-11-12T10:05:00', 'touchque': {
         'state': 'rejected', 'requestId': 'r1'}}
+
+
+def test_a_first_time_qr_gets_the_address_and_user_agent_the_push_gets():
+    """2FA setup context. REMOTE_ADDR is the address; X-Forwarded-For, a header anyone can send, is never read."""
+    tq = FakeTouchque()
+    tq.unlink('new@acme.com')
+    view = make_view(tq)
+    rf = RequestFactory()
+    for user in ('jane@acme.com', 'new@acme.com'):  # jane has a phone (a push), new has none (the first-time QR)
+        view(rf.post('/transfer', data=b'{}', content_type='application/json', HTTP_X_USER=user,
+                     REMOTE_ADDR='203.0.113.7', HTTP_USER_AGENT=BROWSER_UA, HTTP_X_FORWARDED_FOR='198.51.100.99'))
+    assert browsers_sent(tq) == [('/login/request', 'jane@acme.com', '203.0.113.7', BROWSER_UA),
+                                 ('/login/request', 'new@acme.com', '203.0.113.7', BROWSER_UA),
+                                 ('/auth/generate-secret', 'new@acme.com', '203.0.113.7', BROWSER_UA)]

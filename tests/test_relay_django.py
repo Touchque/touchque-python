@@ -19,6 +19,7 @@ from touchque import TouchqueAPIException  # noqa: E402
 from touchque.contrib.django import touchque_relay_urls  # noqa: E402
 from .fake_api import fake_api  # noqa: F401,E402
 from .relay_helpers import fake_tq, real_tq  # noqa: E402
+from .guard_helpers import BROWSER_UA, browsers_sent  # noqa: E402
 
 rf = RequestFactory()
 
@@ -99,3 +100,20 @@ def test_csrf_exempt_option():
     assert getattr(touchque_relay_view(fake_tq(), get_user_id=lambda r: None, csrf_exempt=True),
                    'csrf_exempt', False) is True
     assert not getattr(touchque_relay_view(fake_tq(), get_user_id=lambda r: None), 'csrf_exempt', False)
+
+
+def test_enrollment_and_login_send_the_address_and_user_agent():
+    """2FA setup context: /enroll/start (and its new QR after a 409) gets what POST /login sends."""
+    from touchque.testing import FakeTouchque
+    tq = FakeTouchque(linked=False)
+    send = make(tq, rate_limit=False, get_login_user=lambda req: 'late@example.com')
+    extra = {'HTTP_X_USER': 'u@example.com', 'REMOTE_ADDR': '203.0.113.7', 'HTTP_USER_AGENT': BROWSER_UA,
+             'HTTP_X_FORWARDED_FOR': '198.51.100.99'}
+    assert send('POST', '/touchque/enroll/start', **extra).status_code == 200
+    assert send('POST', '/touchque/enroll/start', **extra).status_code == 200
+    assert send('POST', '/touchque/login', {}, **extra).status_code == 202
+    assert browsers_sent(tq) == [('/auth/generate-secret', 'u@example.com', '203.0.113.7', BROWSER_UA),
+                                 ('/auth/generate-secret', 'u@example.com', '203.0.113.7', BROWSER_UA),
+                                 ('/auth/secret/reset', 'u@example.com', '203.0.113.7', BROWSER_UA),
+                                 ('/login/request', 'late@example.com', '203.0.113.7', BROWSER_UA),
+                                 ('/auth/generate-secret', 'late@example.com', '203.0.113.7', BROWSER_UA)]

@@ -99,6 +99,29 @@ ask the user to link the Touchque app first (`@touchque/web` 2.2.0 does).
 A 202 state other than `waiting` and `enroll` (`passkey_required`, `offline`, an `enroll` step with a
 `reason`) needs `@touchque/web`, or your own UI following the contract.
 
+### Where the first-time QR was asked for
+
+Before it links, the phone shows where the first-time QR was asked for (IP address, city and country,
+browser and OS, time), so a person tricked into scanning someone else's QR sees that place and device.
+The Touchque API records it from the request that made the QR, never in the QR. The adapters and the
+relay send the browser's IP address and User-Agent for you, and `run_guard` and `client.start` send the
+`ip` and `user_agent` you give them with the first-time QR, as with the push. Calling `generate_secret`
+or `reset_secret` yourself, pass them as you do for login:
+
+```python
+qr = tq.auth.generate_secret(user, client_ip=request.remote_addr, user_agent=request.headers.get('User-Agent'))
+# A new QR in its place (the old one stops working) records the request that asks for it, the same way:
+qr = tq.auth.reset_secret(user, client_ip=request.remote_addr, user_agent=request.headers.get('User-Agent'))
+```
+
+Each QR keeps only what its own request sent: one asked for with neither a usable IP address (a
+loopback one is not) nor a User-Agent has no setup context, even when it replaces a QR that had one,
+and neither has an older QR. The phone reads the setup context when it checks the scanned QR with
+`POST /auth/secret/validate`, its public call, and `farFromPhone` compares the place of the QR request
+with the address of whoever makes that call. `auth.validate_secret` makes the same call from your
+server and answers `setupContext` (a `SetupContext`, or `None`), but the phone does not need it to show
+the setup context, and from your server `farFromPhone` compares with your server, not the phone.
+
 ### Refusals in your own error shape
 
 A refusal answers 401 (nobody signed in), 403 (`rejected`, `blocked`), 408 (`expired`), 423 (`frozen`) or
@@ -806,6 +829,11 @@ are the context manager's two halves).
   `tq.secret_ttl_ms` is how long a QR works (5 minutes). A guard that may not show the QR
   (`run_guard(..., enroll=False)`, the relay's `POST /login` without `get_login_user`) answers such a
   user `{'state': 'enroll', 'reason': 'enrollment_off'}`.
+- `tq.setups`: the first-time QRs made, a reset's included (`user`, `secret`, `clientIp` and
+  `userAgent` as your app sent them, `requestedAt`, `expiresAt`). `tq.auth.validate_secret(secret)`
+  answers like the API, with `setupContext`: the fake's GeoIP knows `203.0.113.7` (Berlin) and
+  `198.51.100.23` (New York), a loopback address, such as the test client's `127.0.0.1`, is not kept,
+  and `farFromPhone` is `None`.
 - Each request's `expiresAt` is 30 seconds after it was made (`tq.requests[-1]['expiresAt']`), and the
   step and every poll carry it. The fake never expires a request by time: call `tq.expire()`.
 - `FakeTouchque(number_match=True)`: pushes ask for the number `47`.

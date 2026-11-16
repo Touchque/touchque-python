@@ -209,6 +209,13 @@ def run_guard(
     ``enroll=False``: never a first-time QR. A user with no phone gets
     ``{'state': 'enroll', 'reason': 'enrollment_off'}`` (202): stop polling.
 
+    ``ip`` / ``user_agent``: the browser's, sent with the push and with each
+    first-time QR request: ``generate_secret``, or the ``reset_secret`` that
+    replaces a QR not scanned yet (a new attempt, or a QR about to expire).
+    Touchque records them with that QR, so the phone shows where it was asked
+    for before it links; a QR asked for without them has no setup context,
+    not the one of the QR it replaces.
+
     ``browser_proof``: the browser's device-bound key proof
     (``X-Touchque-Browser``), passed through untouched and attached to the
     push, so its approval makes the browser known.

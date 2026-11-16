@@ -102,3 +102,45 @@ def result_named(name):
 def sent(status, header, body):
     """An adapter's answer (its status, a header getter, its JSON body) as guard_response's triple."""
     return status, {name: header(name) for name in _ANSWER_HEADERS if header(name) is not None}, body
+
+
+# ── 2FA setup context: the browser's address and User-Agent ─────────────
+
+#: The User-Agent of the browser in the adapter tests.
+BROWSER_UA = ('Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7) AppleWebKit/605.1.15 (KHTML, like Gecko) '
+              'Version/18.1 Safari/605.1.15')
+
+#: WSGI (Flask): (behind werkzeug's ProxyFix with x_for=1, environ, headers, the address Touchque gets).
+WSGI_ADDRESSES = [
+    (False, {'REMOTE_ADDR': '203.0.113.7'}, {}, '203.0.113.7'),
+    # X-Forwarded-For is a header anyone can send: without a proxy fix it is never read.
+    (False, {'REMOTE_ADDR': '10.0.0.1'}, {'X-Forwarded-For': '198.51.100.99'}, '10.0.0.1'),
+    # Behind one trusted proxy: the address that proxy saw (the rightmost entry), never the leftmost.
+    (True, {'REMOTE_ADDR': '10.0.0.1'}, {'X-Forwarded-For': '198.51.100.99, 203.0.113.7'}, '203.0.113.7'),
+]
+
+#: ASGI (FastAPI): (behind trusted_proxy, the peer address, headers, the address Touchque gets).
+ASGI_ADDRESSES = [
+    (False, '203.0.113.7', {}, '203.0.113.7'),
+    (False, '10.0.0.1', {'x-forwarded-for': '198.51.100.99'}, '10.0.0.1'),
+    (True, '10.0.0.1', {'x-forwarded-for': '198.51.100.99, 203.0.113.7'}, '203.0.113.7'),
+]
+
+
+def trusted_proxy(app, proxy='10.0.0.1'):
+    """What the ASGI server does with ``uvicorn --proxy-headers --forwarded-allow-ips=10.0.0.1``: for a
+    request from that proxy, the client is the address it added (the rightmost X-Forwarded-For entry)."""
+    async def asgi(scope, receive, send):
+        if scope['type'] == 'http' and (scope.get('client') or ('',))[0] == proxy:
+            forwarded = dict(scope['headers']).get(b'x-forwarded-for', b'').decode('latin-1')
+            hops = [hop.strip() for hop in forwarded.split(',') if hop.strip()]
+            if hops:
+                scope = dict(scope, client=(hops[-1], 0))
+        await app(scope, receive, send)
+    return asgi
+
+
+def browsers_sent(tq):
+    """``(path, user, clientIp, userAgent)`` of every push and first-time QR request a FakeTouchque got."""
+    return [(c['path'], c['body'].get('externalUsername'), c['body'].get('clientIp'), c['body'].get('userAgent'))
+            for c in tq.calls if c['path'] in ('/login/request', '/auth/generate-secret', '/auth/secret/reset')]

@@ -81,7 +81,9 @@ class Touchque:
         """Starts an approval and returns immediately — show the step in your
         UI. ``waiting`` + ``number``: show the number, the user picks it on
         the phone. ``enroll``: show ``enroll['qrCodeDataUrl']`` so the user
-        links the Touchque app first. ``browser_proof``: the browser's
+        links the Touchque app first. ``ip`` / ``user_agent``: the browser's,
+        sent with the push and with each first-time QR request, a reset too
+        (the phone shows where the QR was asked for). ``browser_proof``: the browser's
         ``X-Touchque-Browser`` proof, so the approval makes the browser known
         (silent sign-ins, see ``risk.check``)."""
         return _start(self, action, user, details=details, reference_id=reference_id, ip=ip, user_agent=user_agent,

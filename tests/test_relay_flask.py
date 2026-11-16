@@ -7,6 +7,7 @@ from touchque import TouchqueAPIException  # noqa: E402
 from touchque.contrib.flask import touchque_relay_blueprint  # noqa: E402
 from .fake_api import fake_api  # noqa: F401,E402
 from .relay_helpers import fake_tq, real_tq  # noqa: E402
+from .guard_helpers import BROWSER_UA, WSGI_ADDRESSES, browsers_sent  # noqa: E402
 
 
 def make_app(tq, **options):
@@ -111,3 +112,24 @@ def test_login_silent_sign_in_reads_the_browser_header(fake_api):
                               'assurance': {'phishingResistant': False, 'method': 'silent'}}
     assert seen == [{'externalUsername': 'alice@example.com', 'requestId': 'silent', 'via': 'silent'}]
     assert fake_api.last_check()['browserProof'] == PROOF
+
+
+@pytest.mark.parametrize('proxy,environ,headers,ip', WSGI_ADDRESSES)
+def test_enrollment_and_login_send_the_address_and_user_agent(proxy, environ, headers, ip):
+    """2FA setup context: /enroll/start (and its new QR after a 409) gets what POST /login sends."""
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    from touchque.testing import FakeTouchque
+    tq = FakeTouchque(linked=False)
+    app = make_app(tq, rate_limit=False, get_login_user=lambda req: 'late@example.com')
+    if proxy:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
+    client = app.test_client()
+    hdrs = {'X-User': 'u@example.com', 'User-Agent': BROWSER_UA, **headers}
+    assert client.post('/touchque/enroll/start', environ_base=environ, headers=hdrs).status_code == 200
+    assert client.post('/touchque/enroll/start', environ_base=environ, headers=hdrs).status_code == 200
+    assert client.post('/touchque/login', json={}, environ_base=environ, headers=hdrs).status_code == 202
+    assert browsers_sent(tq) == [('/auth/generate-secret', 'u@example.com', ip, BROWSER_UA),
+                                 ('/auth/generate-secret', 'u@example.com', ip, BROWSER_UA),
+                                 ('/auth/secret/reset', 'u@example.com', ip, BROWSER_UA),
+                                 ('/login/request', 'late@example.com', ip, BROWSER_UA),
+                                 ('/auth/generate-secret', 'late@example.com', ip, BROWSER_UA)]

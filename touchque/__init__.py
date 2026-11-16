@@ -32,6 +32,7 @@ from .guard import (
     silent_input_from_headers, BeforeStart, ErrorBody, BROWSER_HEADER,
 )
 from .resources.risk import parse_risk_check
+from .resources.auth import SetupContext, SetupDevice, SetupLocation, parse_setup_context
 from .resources.recovery import is_recovery_open
 from .resources.mobile import is_mobile_push_expired, mobile_push_from_webhook
 from .resources.assist import is_assist_check_passed
@@ -104,6 +105,10 @@ __all__ = [
     'silent_input_from_headers',
     'BROWSER_HEADER',
     'parse_risk_check',
+    'SetupContext',
+    'SetupLocation',
+    'SetupDevice',
+    'parse_setup_context',
     'is_recovery_open',
     'is_mobile_push_expired',
     'mobile_push_from_webhook',

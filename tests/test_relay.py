@@ -70,9 +70,13 @@ def test_unknown_route_or_method_returns_none():
 # ── enrollment ───────────────────────────────────────────────────────────
 
 def test_enroll_start_returns_secret():
-    res = call(make(fake_tq()), 'POST', '/enroll/start')
+    tq = fake_tq()
+    res = call(make(tq), 'POST', '/enroll/start', user_agent='Mozilla/5.0 (Macintosh)')
     assert res.status == 200
     assert res.body['secret'] == 'S3CR3T'
+    # 2FA setup context: the browser's address and User-Agent, as POST /login sends them.
+    tq.auth.generate_secret.assert_called_once_with(
+        'user@example.com', client_ip='203.0.113.1', user_agent='Mozilla/5.0 (Macintosh)')
 
 
 def test_enroll_start_retries_via_reset_on_409_when_nothing_linked():
@@ -81,7 +85,15 @@ def test_enroll_start_retries_via_reset_on_409_when_nothing_linked():
     res = call(make(tq), 'POST', '/enroll/start')
     assert res.status == 200
     assert res.body['secret'] == 'NEWSECRET'
-    tq.auth.reset_secret.assert_called_once_with('user@example.com')
+    tq.auth.reset_secret.assert_called_once_with('user@example.com', client_ip='203.0.113.1', user_agent=None)
+
+
+def test_enroll_start_without_an_address_passes_none_to_generate_and_reset():
+    tq = fake_tq()
+    tq.auth.generate_secret.side_effect = TouchqueAPIException('pending', status=409)
+    assert call(make(tq), 'POST', '/enroll/start', ip=None).status == 200
+    tq.auth.generate_secret.assert_called_once_with('user@example.com', client_ip=None, user_agent=None)
+    tq.auth.reset_secret.assert_called_once_with('user@example.com', client_ip=None, user_agent=None)
 
 
 def test_enroll_start_never_replaces_a_linked_phone():

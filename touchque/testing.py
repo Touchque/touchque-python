@@ -22,9 +22,10 @@ Routes that were given no ``client`` use the default one: ``tq.install()`` (or
 ``tq.uninstall()``.
 
 It answers the calls the step-up guard makes (approval requests, first-time
-linking, offline codes, silent sign-in checks) and defining action types,
-like the shared fake API the SDKs' own tests use. Any other call raises
-``TouchqueAPIException`` 404.
+linking, offline codes, silent sign-in checks), defining action types and
+checking a first-time QR as the phone does (``auth.validate_secret``, with
+its ``setupContext``), like the shared fake API the SDKs' own tests use. Any
+other call raises ``TouchqueAPIException`` 404.
 
 Because the real guard runs, the answers are the guard's own: every poll of a
 waiting request carries its ``expiresAt``, and a guard that may not show a
@@ -32,6 +33,7 @@ first-time QR (``run_guard(..., enroll=False)``, the relay's ``POST /login``
 without ``get_login_user``) answers a user with no phone
 ``{"touchque": {"state": "enroll", "reason": "enrollment_off"}}``.
 """
+import ipaddress
 import json
 import re
 import threading
@@ -43,7 +45,7 @@ from . import client as _client_module
 from .client import Touchque
 from .config import Config
 from .http_client import HttpClient, _build_query
-from .steps import _iso_from_ms
+from .steps import _iso_from_ms, _iso_ms
 
 __all__ = ['FakeTouchque', 'FakeClient']
 
@@ -53,6 +55,79 @@ _NOT_INSTALLED = object()
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
+
+
+# ── 2FA setup context: where a first-time QR was asked for ───────────────
+# Kept with the secret (never in the QR) and answered by validate as the API does (the shared fake
+# API's rules): the IP address only when it is one and not a loopback one (a port, brackets and
+# ::ffff: dropped), shown only when public; the User-Agent without control characters, at most 512
+# characters; neither kept: setupContext None.
+
+_IPV4_PORT = re.compile(r'([0-9]{1,3}(?:\.[0-9]{1,3}){3}):[0-9]{1,5}')
+_BRACKETED = re.compile(r'\[([^\]]+)\](?::[0-9]{1,5})?')
+_CONTROL = re.compile(r'[\x00-\x1f\x7f]')
+# The phone shows no private, carrier-grade NAT, unique-local or link-local address; documentation ranges are shown.
+_NOT_SHOWN = tuple(ipaddress.ip_network(n) for n in (
+    '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', '169.254.0.0/16', 'fc00::/7', 'fe80::/10'))
+# The fake's GeoIP: two documentation addresses; any other place is unknown (location None).
+_SETUP_PLACES = {
+    '203.0.113.7': {'city': 'Berlin', 'country': 'Germany', 'countryCode': 'DE'},
+    '198.51.100.23': {'city': 'New York', 'country': 'United States', 'countryCode': 'US'},
+}
+_INTEGRATION = {'companyName': 'Fake workspace', 'icon': 'key-outline', 'color': '#007AFF', 'logo': None,
+                'logoDark': None, 'logoVersion': None}
+
+
+def _ip(text: str) -> Optional[Any]:
+    try:
+        return ipaddress.ip_address(text)
+    except ValueError:
+        return None
+
+
+def _kept_ip(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    ip = value.strip()
+    for pattern in (_IPV4_PORT, _BRACKETED):
+        m = pattern.fullmatch(ip)
+        if m:
+            ip = m.group(1)
+    if ip[:7].lower() == '::ffff:' and isinstance(_ip(ip[7:]), ipaddress.IPv4Address):
+        ip = ip[7:]
+    return ip if _ip(ip) is not None and ip != '::1' and not ip.startswith('127.') else None
+
+
+def _kept_user_agent(value: Any) -> Optional[str]:
+    text = _CONTROL.sub('', value).strip() if isinstance(value, str) else ''
+    return text[:512] if text else None
+
+
+def _setup_device(ua: Optional[str]) -> Optional[Dict[str, Optional[str]]]:
+    """A tiny User-Agent parse with the API's names; not a browser (curl, an HTTP client) or nothing known: None."""
+    if not ua or not ua.startswith('Mozilla/'):
+        return None
+    browser = next((name for pattern, name in (
+        (r'EdgA?/|EdgiOS/', 'Edge'), (r'Firefox/|FxiOS/', 'Firefox'), (r'CriOS/|Chrome/', 'Chrome'),
+        (r'Version/[0-9.]+.*Safari/', 'Safari')) if re.search(pattern, ua)), None)
+    os_name = next((name for pattern, name in (
+        (r'iPad', 'iPadOS'), (r'iPhone|iPod', 'iOS'), (r'Android', 'Android'), (r'Windows NT', 'Windows'),
+        (r'Mac OS X|Macintosh', 'macOS'), (r'Linux', 'Linux')) if re.search(pattern, ua)), None)
+    if not browser and not os_name:
+        return None
+    return {'browser': browser, 'os': os_name,
+            'model': 'iPhone' if 'iPhone' in ua else 'iPad' if 'iPad' in ua else None}
+
+
+def _setup_context_of(setup: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    kept_ip, kept_ua = _kept_ip(setup['clientIp']), _kept_user_agent(setup['userAgent'])
+    if not kept_ip and not kept_ua:
+        return None
+    addr = _ip(kept_ip) if kept_ip else None
+    shown = kept_ip if addr is not None and not any(addr in net for net in _NOT_SHOWN) else None
+    place = _SETUP_PLACES.get(shown) if shown else None
+    return {'ip': shown, 'location': dict(place) if place else None, 'device': _setup_device(kept_ua),
+            'requestedAt': setup['requestedAt'], 'farFromPhone': None}
 
 
 class FakeTouchque(Touchque):
@@ -74,6 +149,16 @@ class FakeTouchque(Touchque):
     ``number_match``: pushes ask for the number ``'47'``. ``secret_ttl_ms``:
     how long a first-time QR works (5 minutes, like the API). The offline code
     is ``'ABCD123'`` and the time-based code ``'123456'``.
+
+    ``setups`` lists the first-time QRs made (``auth.generate_secret`` and
+    ``reset_secret``, the guard's and the relay's included): ``user``,
+    ``secret``, ``clientIp`` and ``userAgent`` as your app sent them (``None``
+    when it sent none), ``requestedAt`` and ``expiresAt``. ``auth.validate_secret``
+    answers like the API, with ``setupContext``: the fake's GeoIP knows
+    ``203.0.113.7`` (Berlin) and ``198.51.100.23`` (New York), a loopback or
+    private address is not shown (``ip`` ``None``), ``setupContext`` is
+    ``None`` for a QR asked for without them, a reset's too (never the old
+    QR's), and ``farFromPhone`` is always ``None``.
     """
 
     #: The code the phone shows for an offline QR (``X-Touchque-Code``).
@@ -94,6 +179,10 @@ class FakeTouchque(Touchque):
         self.requests: List[Dict[str, Any]] = []
         #: Every API call so far: ``{'method', 'path', 'body'}``, oldest first.
         self.calls: List[Dict[str, Any]] = []
+        #: The first-time QRs made so far: ``{'user', 'secret', 'clientIp', 'userAgent', 'requestedAt',
+        #: 'expiresAt'}``, oldest first. Only a user's newest one validates.
+        self.setups: List[Dict[str, Any]] = []
+        self._used_at: Dict[str, str] = {}
         self._linked: Set[str] = set()
         self._unlinked: Set[str] = set()
         self._pending: Dict[str, int] = {}
@@ -243,11 +332,17 @@ class FakeTouchque(Touchque):
         r['consumed'] = True
         return 200, {'consumed': True, 'requestId': r['id'], 'approvalProof': None, **self._approval(r)}
 
-    def _new_secret(self, user: str) -> Dict[str, Any]:
+    def _new_secret(self, user: str, b: Dict[str, Any]) -> Dict[str, Any]:
         self._seq += 1
-        expires = _now_ms() + self.secret_ttl_ms
+        now = _now_ms()
+        expires = now + self.secret_ttl_ms
         self._pending[user] = expires
-        return {'secret': 'S%d' % self._seq, 'qrCodeDataUrl': 'data:image/png;base64,QR%d-%s' % (self._seq, user),
+        secret = 'S%d' % self._seq
+        # Where the QR was asked for (2FA setup context): kept with the secret, never in the QR.
+        self.setups.append({'user': user, 'secret': secret, 'clientIp': b.get('clientIp'),
+                            'userAgent': b.get('userAgent'), 'requestedAt': _iso_from_ms(now),
+                            'expiresAt': _iso_from_ms(expires)})
+        return {'secret': secret, 'qrCodeDataUrl': 'data:image/png;base64,QR%d-%s' % (self._seq, user),
                 'externalUsername': user, 'expiresAt': _iso_from_ms(expires), 'ttlMs': self.secret_ttl_ms,
                 'recoveryCodes': ['r%d' % self._seq]}
 
@@ -257,14 +352,34 @@ class FakeTouchque(Touchque):
             return 409, {'error': 'already linked'}
         if user in self._pending:
             return 409, {'error': 'Secret already generated'}
-        return 200, self._new_secret(user)
+        return 200, self._new_secret(user, b)
 
     def _reset_secret(self, b: Dict[str, Any]) -> _Answer:
         # Like the API: a reset unlinks the phone (the guard only resets a user it found not linked).
         user = b.get('externalUsername')
         self._unlinked.add(user)
         self._linked.discard(user)
-        return 200, {'success': True, **self._new_secret(user)}
+        return 200, {'success': True, **self._new_secret(user, b)}
+
+    def _validate_secret(self, b: Dict[str, Any]) -> _Answer:
+        # The phone after scanning the QR. Like the API: 400 without a secret, 404 one never made (or replaced by a
+        # newer one for its user), 409 its user linked since, 410 expired, else valid with the brand and setupContext.
+        secret = b.get('secret')
+        if not secret:
+            return 400, {'error': 'secret is required'}
+        setup = next((s for s in reversed(self.setups) if s['secret'] == secret), None)
+        newest = next((s for s in reversed(self.setups) if setup and s['user'] == setup['user']), None)
+        if setup is None or newest is not setup:
+            return 404, {'valid': False, 'message': 'Secret not found - invalid code', 'reason': 'not_found'}
+        if self.is_linked(setup['user']):
+            used_at = self._used_at.setdefault(secret, _iso_from_ms(_now_ms()))  # when the fake first saw it linked
+            return 409, {'valid': False, 'message': 'This secret has already been used', 'reason': 'already_used',
+                         'usedAt': used_at}
+        if _now_ms() > (_iso_ms(setup['expiresAt']) or 0):
+            return 410, {'valid': False, 'message': 'Secret has expired - generate a new code', 'reason': 'expired',
+                         'expiredAt': setup['expiresAt']}
+        return 200, {'valid': True, 'externalUsername': setup['user'], 'integrationId': 'int-1',
+                     'integration': dict(_INTEGRATION), 'setupContext': _setup_context_of(setup)}
 
     def _get_user(self, b: Dict[str, Any], user: str) -> _Answer:
         linked = self.is_linked(user)
@@ -343,6 +458,7 @@ _ROUTES = tuple(
         ('POST', r'/login/([^/]+)/consume', FakeTouchque._login_consume),
         ('POST', r'/auth/generate-secret', FakeTouchque._generate_secret),
         ('POST', r'/auth/secret/reset', FakeTouchque._reset_secret),
+        ('POST', r'/auth/secret/validate', FakeTouchque._validate_secret),
         ('GET', r'/users/([^/]+)', FakeTouchque._get_user),
         ('POST', r'/offline/challenge', FakeTouchque._offline_challenge),
         ('POST', r'/offline/verify', FakeTouchque._offline_verify),

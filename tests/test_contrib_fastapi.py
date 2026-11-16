@@ -12,7 +12,8 @@ from touchque.contrib.fastapi import RequireTouchque, install_touchque_exception
 from touchque.testing import FakeTouchque
 from .fake_api import fake_api  # noqa: F401
 from .guard_helpers import (  # noqa: F401
-    ERROR_BODIES, GUARD_RESULTS, MISCONFIGURED, no_keys, result_named, sent,
+    ASGI_ADDRESSES, BROWSER_UA, ERROR_BODIES, GUARD_RESULTS, MISCONFIGURED, browsers_sent, no_keys, result_named,
+    sent, trusted_proxy,
 )
 
 
@@ -271,3 +272,20 @@ async def test_without_the_exception_handler_the_step_is_under_detail():
 @pytest.fixture
 def anyio_backend():
     return 'asyncio'
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('proxy,peer,headers,ip', ASGI_ADDRESSES)
+async def test_a_first_time_qr_gets_the_address_and_user_agent_the_push_gets(proxy, peer, headers, ip):
+    """2FA setup context: request.client.host as the ASGI server set it; X-Forwarded-For is never read here."""
+    tq = FakeTouchque()
+    tq.unlink('new@acme.com')
+    app = make_app(tq)
+    transport = httpx.ASGITransport(app=trusted_proxy(app) if proxy else app, client=(peer, 50000))
+    async with httpx.AsyncClient(transport=transport, base_url='http://test') as client:
+        for user in ('jane@acme.com', 'new@acme.com'):  # jane has a phone (a push), new has none (the QR)
+            await client.post('/transfer', json={'amount': 5},
+                              headers={'x-user': user, 'user-agent': BROWSER_UA, **headers})
+    assert browsers_sent(tq) == [('/login/request', 'jane@acme.com', ip, BROWSER_UA),
+                                 ('/login/request', 'new@acme.com', ip, BROWSER_UA),
+                                 ('/auth/generate-secret', 'new@acme.com', ip, BROWSER_UA)]

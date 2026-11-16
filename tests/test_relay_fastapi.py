@@ -8,6 +8,7 @@ from touchque import TouchqueAPIException  # noqa: E402
 from touchque.contrib.fastapi import touchque_relay_router  # noqa: E402
 from .fake_api import fake_api  # noqa: F401,E402
 from .relay_helpers import fake_tq, real_tq  # noqa: E402
+from .guard_helpers import ASGI_ADDRESSES, BROWSER_UA, browsers_sent, trusted_proxy  # noqa: E402
 
 
 def client_for(tq, **options):
@@ -84,3 +85,26 @@ async def test_mismatch_delete_and_error_mapping():
         res = await c.post('/touchque/offline/totp', json={'externalUsername': 'victim@example.com', 'code': '1'})
         assert res.status_code == 200
         assert tq.offline.verify_totp.call_args[0][0] == 'alice@example.com'
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('proxy,peer,headers,ip', ASGI_ADDRESSES)
+async def test_enrollment_and_login_send_the_address_and_user_agent(proxy, peer, headers, ip):
+    """2FA setup context: /enroll/start (and its new QR after a 409) gets what POST /login sends."""
+    from touchque.testing import FakeTouchque
+    tq = FakeTouchque(linked=False)
+    app = fastapi.FastAPI()
+    app.include_router(touchque_relay_router(tq, get_user_id=lambda req: req.headers.get('x-user'),
+                                             get_login_user=lambda req: 'late@example.com', rate_limit=False),
+                       prefix='/touchque')
+    transport = httpx.ASGITransport(app=trusted_proxy(app) if proxy else app, client=(peer, 50000))
+    hdrs = {'x-user': 'u@example.com', 'user-agent': BROWSER_UA, **headers}
+    async with httpx.AsyncClient(transport=transport, base_url='http://test') as c:
+        assert (await c.post('/touchque/enroll/start', headers=hdrs)).status_code == 200
+        assert (await c.post('/touchque/enroll/start', headers=hdrs)).status_code == 200
+        assert (await c.post('/touchque/login', json={}, headers=hdrs)).status_code == 202
+    assert browsers_sent(tq) == [('/auth/generate-secret', 'u@example.com', ip, BROWSER_UA),
+                                 ('/auth/generate-secret', 'u@example.com', ip, BROWSER_UA),
+                                 ('/auth/secret/reset', 'u@example.com', ip, BROWSER_UA),
+                                 ('/login/request', 'late@example.com', ip, BROWSER_UA),
+                                 ('/auth/generate-secret', 'late@example.com', ip, BROWSER_UA)]

@@ -112,7 +112,7 @@ def start(client: 'Touchque', action: str, user: str, details: Optional[LoginDet
             if not enroll:
                 # No phone, and this guard may not show a QR: say so, so the page stops polling.
                 return {'state': 'enroll', 'reason': 'enrollment_off'}
-            return _enroll_step(client, user)
+            return _enroll_step(client, user, ip=ip, user_agent=user_agent)
         if err.status == 423:
             return {'state': 'frozen', 'retryAfter': err.retry_after, **why}
         if err.status == 429:
@@ -181,11 +181,15 @@ def _enroll_qr(res: Dict[str, Any]) -> Dict[str, Any]:
     return {'state': 'enroll', 'enroll': enroll}
 
 
-def _enroll_step(client: 'Touchque', user: str) -> Dict[str, Any]:
+def _enroll_step(client: 'Touchque', user: str, ip: Optional[str] = None,
+                 user_agent: Optional[str] = None) -> Dict[str, Any]:
     """First-time linking. Never unlinks a phone: a secret is only re-issued
-    when the account is confirmed NOT linked."""
+    when the account is confirmed NOT linked. ``ip`` / ``user_agent``: the
+    browser's, as the push gets them, sent with the new secret and with its
+    reset alike (each records its own QR's), so the phone shows where the QR
+    was asked for before it links (2FA setup context)."""
     try:
-        return _enroll_qr(client.auth.generate_secret(user))
+        return _enroll_qr(client.auth.generate_secret(user, client_ip=ip, user_agent=user_agent))
     except TouchqueAPIException as err:
         if err.status != 409:
             raise
@@ -195,7 +199,7 @@ def _enroll_step(client: 'Touchque', user: str) -> Dict[str, Any]:
             current = None
         if current and (current.get('used') or current.get('deviceId')):
             return {'state': 'enroll', 'reason': 'already_linked'}
-        return _enroll_qr(client.auth.reset_secret(user))
+        return _enroll_qr(client.auth.reset_secret(user, client_ip=ip, user_agent=user_agent))
 
 
 _STATE_MAP = {'PENDING': 'waiting', 'CONFIRMED': 'approved', 'REJECTED': 'rejected', 'EXPIRED': 'expired'}

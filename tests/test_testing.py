@@ -231,3 +231,32 @@ def test_a_client_set_while_the_default_one_is_built_is_kept(no_keys, monkeypatc
     builder.join(5)
     setter.join(5)
     assert get_default_client() is mine
+
+
+def test_the_first_time_qr_carries_the_browser_and_validate_shows_where_it_was_asked_for():
+    safari = ('Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 '
+              '(KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1')
+    tq = FakeTouchque(linked=False)
+    http = make_app(tq).test_client()
+    first = http.post('/transfer', json={'amount': 5}, headers={'X-User': 'new@acme.com', 'User-Agent': safari},
+                      environ_base={'REMOTE_ADDR': '203.0.113.7'}).get_json()
+    assert first['touchque']['state'] == 'enroll'
+    setup = tq.setups[-1]
+    assert setup == {'user': 'new@acme.com', 'secret': setup['secret'], 'clientIp': '203.0.113.7',
+                     'userAgent': safari, 'requestedAt': setup['requestedAt'],
+                     'expiresAt': first['touchque']['enroll']['expiresAt']}
+    push, generate = (next(c['body'] for c in tq.calls if c['path'] == path)
+                      for path in ('/login/request', '/auth/generate-secret'))
+    assert (generate['clientIp'], generate['userAgent']) == (push['clientIp'], push['userAgent']) \
+        == ('203.0.113.7', safari)
+    assert tq.auth.validate_secret(setup['secret'])['setupContext'] == {
+        'ip': '203.0.113.7', 'location': {'city': 'Berlin', 'country': 'Germany', 'countryCode': 'DE'},
+        'device': {'browser': 'Safari', 'os': 'iOS', 'model': 'iPhone'}, 'requestedAt': setup['requestedAt'],
+        'farFromPhone': None}
+
+    # The test client's own address and User-Agent: a loopback address is not kept, and it is not a browser.
+    send(http, user='joe@acme.com')
+    assert (tq.setups[-1]['clientIp'], tq.setups[-1]['userAgent'].split('/')[0]) == ('127.0.0.1', 'Werkzeug')
+    assert tq.auth.validate_secret(tq.setups[-1]['secret'])['setupContext'] == {
+        'ip': None, 'location': None, 'device': None, 'requestedAt': tq.setups[-1]['requestedAt'],
+        'farFromPhone': None}
