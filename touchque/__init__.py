@@ -33,6 +33,7 @@ from .guard import (
 )
 from .resources.risk import parse_risk_check
 from .resources.auth import SetupContext, SetupDevice, SetupLocation, parse_setup_context
+from .resources.identity import CustomDomainsOverview
 from .resources.recovery import is_recovery_open
 from .resources.mobile import is_mobile_push_expired, mobile_push_from_webhook
 from .resources.assist import is_assist_check_passed
@@ -109,6 +110,7 @@ __all__ = [
     'SetupLocation',
     'SetupDevice',
     'parse_setup_context',
+    'CustomDomainsOverview',
     'is_recovery_open',
     'is_mobile_push_expired',
     'mobile_push_from_webhook',

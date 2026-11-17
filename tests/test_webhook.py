@@ -89,11 +89,24 @@ def test_rejects_a_non_ascii_signature_as_a_bad_signature():
         make_webhook().verify(json.dumps(payload), "é")
     with pytest.raises(TouchqueWebhookSignatureException):
         make_webhook().verify(json.dumps({**payload, "signature": "é" * 64}))
+    # An unpaired surrogate (json.dumps writes the escape \ud800) cannot be encoded: still a bad signature.
+    with pytest.raises(TouchqueWebhookSignatureException):
+        make_webhook().verify(json.dumps({**payload, "signature": "\ud800" * 64}))
+    with pytest.raises(TouchqueWebhookSignatureException):
+        make_webhook().verify(json.dumps(payload), "\udc00")
 
 
 def test_rejects_malformed_json():
     with pytest.raises(TouchqueWebhookSignatureException):
         make_webhook().verify("not json")
+
+
+def test_rejects_a_body_nested_too_deep_or_with_a_number_too_long():
+    # json.loads raises RecursionError for the first, and ValueError (not JSONDecodeError) for the second on
+    # Python 3.11+: both are a bad body, not a crash.
+    for body in ('{"a":' + "[" * 100000 + "]" * 100000 + "}", '{"a":' + "1" * 5000 + "}"):
+        with pytest.raises(TouchqueWebhookSignatureException):
+            make_webhook().verify(body, "0" * 64)
 
 
 def test_rejects_a_non_object_body():
@@ -147,6 +160,41 @@ def test_preserves_nested_object_key_order_empty_objects_and_numbers():
     assert result["meta"] == {}
 
 
+def _js_iso_now() -> str:
+    """new Date().toISOString(): milliseconds and Z."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+@pytest.mark.parametrize("password_json,password", [
+    ("s3cret", "s3cret"),
+    ("pässwörd 🔑 \\\"q\\\"", "pässwörd 🔑 \"q\""),
+    # An unpaired surrogate a customer typed: JSON.stringify writes it as an escape and signs that text (a pair
+    # stays one character). The payload has U+FFFD in its place, so the password can be encoded.
+    ("a\\ud800b\\udc00", "a\ufffdb\ufffd"),
+    ("\\ud800\U00010000", "\ufffd\U00010000"),
+])
+def test_verifies_a_user_store_request_as_the_server_signs_it(password_json, password):
+    # As the API server asks the user store: payload { event, tenant, email, password, timestamp, jti }, signed over stableStringify
+    # (top-level keys sorted), sent as {...payload, signature} with the same signature in x-signature.
+    ts, jti = _js_iso_now(), "3f1c9e0a-6d2b-4c1e-9a57-0b8e2d4f6a11"
+    canonical = (
+        '{"email":"ada@acme.test","event":"user_store.verify_password","jti":"%s","password":"%s",'
+        '"tenant":"acme","timestamp":"%s"}' % (jti, password_json, ts)
+    )
+    signature = hmac.new(SECRET.encode(), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+    raw_body = (
+        '{"event":"user_store.verify_password","tenant":"acme","email":"ada@acme.test","password":"%s",'
+        '"timestamp":"%s","jti":"%s","signature":"%s"}' % (password_json, ts, jti, signature)
+    )
+
+    for header in (signature, None):
+        result = make_webhook().verify(raw_body, header)
+        assert (result["event"], result["email"], result["password"]) == ("user_store.verify_password", "ada@acme.test", password)
+        result["password"].encode("utf-8")
+    with pytest.raises(TouchqueWebhookSignatureException):
+        make_webhook().verify(raw_body.replace('"tenant":"acme"', '"tenant":"evil"'), signature)
+
+
 # ── Cross-language SDK contract fixtures (fixtures/webhook-vectors.json) ──
 import os
 from touchque.resources.webhook import _canonicalize
@@ -164,6 +212,39 @@ def test_webhook_canonical_matches_backend_vector(vec):
     wh = Webhook(Config(api_key="tq_x", api_secret=_WH_FIXTURE["secret"]))
     result = wh.verify(vec["delivered_body"], tolerance_seconds=0)  # fixtures have a fixed timestamp
     assert result["requestId"] == vec["payload"]["requestId"]
+
+
+# ── Touchque Login user-store requests as the backend sends them (fixtures/user-store-vectors.json) ──
+
+with open(os.path.join(os.path.dirname(__file__), "..", "fixtures", "user-store-vectors.json"), encoding="utf-8") as _f:
+    _US_VECTORS = json.load(_f)["vectors"]
+
+
+@pytest.mark.parametrize("vec", _US_VECTORS, ids=lambda v: v["name"])
+def test_user_store_request_matches_backend_vector(vec):
+    # What a verifier builds from the body: for a valid vector, exactly the text Touchque signed.
+    assert _canonicalize(json.loads(vec["body"])) == vec["canonical"]
+    wh = Webhook(Config(api_key="tq_x", api_secret=vec["secret"]))
+    for signature in (vec["x_signature"], None):  # the x-signature header, or the body's signature field
+        if vec["valid"]:
+            payload = wh.verify(vec["body"], signature, tolerance_seconds=0)  # fixed timestamps in the past
+            assert payload == vec["expected_payload"]
+            json.dumps(payload, ensure_ascii=False).encode("utf-8")  # every string can be encoded and read
+        else:
+            with pytest.raises(TouchqueWebhookSignatureException):
+                wh.verify(vec["body"], signature, tolerance_seconds=0)
+
+
+def test_a_user_store_body_carrying_the_replacement_character_instead_fails():
+    # The signature covers the unpaired surrogate as sent (\ud800), not the U+FFFD handed back: a body with
+    # U+FFFD there instead, escaped or raw, is not what Touchque signed.
+    vec = next(v for v in _US_VECTORS if v["name"] == "verify_password_unpaired_high_surrogates")
+    wh = Webhook(Config(api_key="tq_x", api_secret=vec["secret"]))
+    assert wh.verify(vec["body"], vec["x_signature"], tolerance_seconds=0)["password"] == "ab\ufffdcd\ufffd"
+    for changed in (vec["body"].replace("\\ud800", "\\ufffd"), vec["body"].replace("\\ud800", "\ufffd")):
+        assert changed != vec["body"]
+        with pytest.raises(TouchqueWebhookSignatureException):
+            wh.verify(changed, vec["x_signature"], tolerance_seconds=0)
 
 
 # ── Replay protection (A12) ──

@@ -8,11 +8,31 @@ the tenant itself, from your server with your workspace key.
     client.identity.imports.wait(job["id"])
 """
 
+import sys
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 from urllib.parse import quote
 
+from ..exceptions import api_exception
 from ..http_client import HttpClient
+
+if sys.version_info >= (3, 8):
+    from typing import TypedDict
+else:  # pragma: no cover - Python 3.7 has no typing.TypedDict: the same name, as a dict subclass
+    TypedDict = dict
+
+
+class CustomDomainsOverview(TypedDict):
+    """The whole answer of ``GET /identity/custom-domains``
+    (``identity.custom_domains.overview()``), plain JSON."""
+    #: Your custom sign-in domains, oldest first: what ``custom_domains.list()`` returns.
+    domains: List[Dict[str, Any]]
+    #: Your organization's verified domains (Organization → Domains), which prove a custom domain under them and
+    #: allow a passkey domain above one; ``None`` when they could not be read.
+    verifiedDomains: Optional[List[str]]
+    #: Customer passkeys made on ``{slug}.login.touchque.com``: they belong to that name and do not work on a
+    #: custom domain.
+    slugPasskeys: int
 
 
 def _id(value: str) -> str:
@@ -193,6 +213,33 @@ class IdentityClients(_Crud):
         return self._http.post(f'{self._base}/{_id(client_id)}/rotate-secret', {})
 
 
+class IdentityCustomDomains(_Crud):
+    """Your own sign-in domains (``login.acme.com``). The API has no read by id: ``get`` finds the domain in the list."""
+
+    def __init__(self, http: HttpClient):
+        super().__init__(http, '/identity/custom-domains', 'domains')
+
+    def overview(self) -> CustomDomainsOverview:
+        """The whole list answer, a :class:`CustomDomainsOverview`: ``domains``; ``verifiedDomains``, your
+        organization's verified domains (Organization → Domains; None when they could not be read), which prove a
+        custom domain under them and allow a passkey domain above one; ``slugPasskeys``, customer passkeys made on
+        {slug}.login.touchque.com (they do not work on a custom domain). ``list()`` returns only ``domains``."""
+        return cast(CustomDomainsOverview, self._http.get(self._base))
+
+    def get(self, item_id: str) -> Dict[str, Any]:
+        """The domain with this id, found in ``list()``. When there is none, a TouchqueAPIException like the API's
+        own 404: ``status`` 404, ``data['error']`` ``not_found`` (also the message) and ``data['message']``."""
+        for domain in self.list():
+            if isinstance(domain, dict) and domain.get('id') == item_id:
+                return domain
+        raise api_exception('not_found', status=404, data={'error': 'not_found', 'message': 'No custom domain with this id'})
+
+    def verify(self, domain_id: str) -> Dict[str, Any]:
+        """``POST /identity/custom-domains/{id}/verify``: checks the DNS TXT record now (a domain under one your
+        organization verified needs none) and what the domain's DNS says (``dns``). Answers the domain."""
+        return self._http.post(f'{self._base}/{_id(domain_id)}/verify', {})
+
+
 class Identity:
     def __init__(self, http: HttpClient):
         self._http = http
@@ -204,7 +251,7 @@ class Identity:
         self.clients = IdentityClients(http)
         self.apis = _Crud(http, '/identity/apis', 'apis')
         self.connections = _Crud(http, '/identity/connections', 'connections')
-        self.custom_domains = _Crud(http, '/identity/custom-domains', 'domains')
+        self.custom_domains = IdentityCustomDomains(http)
 
     def get_tenant(self) -> Dict[str, Any]:
         return self._http.get('/identity/tenant')
@@ -227,6 +274,19 @@ class Identity:
         """Serve sign-in only on the primary custom domain: {slug}.login.touchque.com redirects page loads there and
         refuses other calls. Turning it on needs a verified primary domain with a working certificate."""
         return self._http.put('/identity/tenant', {'customDomainOnly': on})
+
+    def set_passkey_domain(self, domain: Optional[str]) -> Dict[str, Any]:
+        """The domain customer passkeys are made for (their relying party ID), so they keep working on every sign-in
+        host under it: one of your verified custom domains, or a domain above one of them that your organization
+        verified (Organization → Domains: ``acme.com`` for ``login.acme.com``). None (or '') clears it: each passkey
+        belongs to the host it was made on. Answers the tenant (``passkeyDomain``).
+
+        Set it before customers make passkeys: a change that would leave theirs behind is refused with 409
+        ``passkeys_exist`` (``count`` in the exception's ``data``). Other refusals (``data['error']``): 400
+        ``invalid_request`` with ``field`` ``passkeyDomain`` (not a domain), 409 ``not_your_domain``, 409
+        ``organization_unavailable`` (try again). Before Touchque Login is set up for the workspace
+        (``update_tenant(slug=..., displayName=...)``) it is 400 ``invalid_request`` with ``field`` ``slug``."""
+        return self._http.put('/identity/tenant', {'passkeyDomain': domain})
 
     def check_domain_certificate(self, domain_id: str) -> Dict[str, Any]:
         """Checks a verified custom domain's certificate at the sign-in edge now (``certificate``: pending | active | error)."""
@@ -266,3 +326,36 @@ class Identity:
     def test_delivery(self, channel: str, to: str) -> Dict[str, Any]:
         """One test message through the provider in use."""
         return self._http.post(f'/identity/delivery/{_id(channel)}/test', {'to': to})
+
+    def get_user_store(self) -> Dict[str, Any]:
+        """Moving your customers in from your own user database: ``url``, ``enabled``, ``active`` (asked: enabled and
+        passwords on), ``movedIn`` (accounts made from it so far), ``lastCall`` ({at, event, ok, status, ms, error}, or
+        None), ``paused`` (5 failures in a row pause asking for a minute), ``updatedAt``, ``signing``.
+
+        Touchque POSTs ``user_store.verify_password`` {email, password} at a password sign-in of an address with no
+        account here (or one moved in without a password), and ``user_store.get_user`` {email} at "forgot password",
+        an email code or a sign-up of an address with no account here, signed like its webhooks: check each with
+        ``client.webhook.verify(...)``, then answer 200 {"user": {"id", "email", ...}} (``email`` the address asked
+        about) or {"user": null} (or 404; the same for an unknown address and a wrong password) within 5 seconds."""
+        return self._http.get('/identity/user-store')
+
+    def set_user_store(self, url: Optional[str] = None, enabled: Optional[bool] = None) -> Dict[str, Any]:
+        """Sets the endpoint (``url``, https) and whether it is asked (``enabled``). Only what is given is sent and the
+        rest kept: ``url`` is needed the first time, and ``enabled`` left out is then True. Answers like
+        ``get_user_store`` (201 the first time). Needs passwords on (409 ``passwords_off``)."""
+        body: Dict[str, Any] = {}
+        if url is not None:
+            body['url'] = url
+        if enabled is not None:
+            body['enabled'] = enabled
+        return self._http.put('/identity/user-store', body)
+
+    def test_user_store(self, url: Optional[str] = None) -> Dict[str, Any]:
+        """One signed ``user_store.ping`` to ``url`` (None or '': the endpoint set): {ok, error, ms}. Never paused, and
+        it does not count toward a pause."""
+        return self._http.post('/identity/user-store/test', {'url': url} if url else {})
+
+    def remove_user_store(self) -> Dict[str, Any]:
+        """Stops asking your user database; accounts already moved in stay. Returns {} (204), also when none is set;
+        404 ``not_enabled`` means Touchque Login is not set up."""
+        return self._http.delete('/identity/user-store')

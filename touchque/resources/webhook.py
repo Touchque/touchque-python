@@ -1,4 +1,5 @@
 import json
+import re
 import time
 import hmac
 import hashlib
@@ -155,6 +156,11 @@ class MemoryReplayCache(ReplayCache):
             return True
 
 
+# An unpaired UTF-16 surrogate. json.loads joins an escaped pair into one
+# character, so any surrogate left in a parsed string is unpaired.
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
+
+
 def _canonicalize(payload: Dict[str, Any]) -> str:
     """
     Reproduce the server's ``stableStringify``:
@@ -164,7 +170,24 @@ def _canonicalize(payload: Dict[str, Any]) -> str:
     """
     without_sig = {k: v for k, v in payload.items() if k != "signature"}
     ordered = {k: without_sig[k] for k in sorted(without_sig)}
-    return json.dumps(ordered, separators=(",", ":"), ensure_ascii=False)
+    text = json.dumps(ordered, separators=(",", ":"), ensure_ascii=False)
+    # JSON.stringify writes an unpaired surrogate as an escape (\ud800), which
+    # a customer can type into a password the user store forwards; json.dumps
+    # keeps it raw, and UTF-8 cannot encode it.
+    return _LONE_SURROGATE.sub(lambda m: "\\u%04x" % ord(m.group()), text)
+
+
+def _well_formed(value: Any) -> Any:
+    """``value`` with each unpaired surrogate in its strings (keys too)
+    replaced by U+FFFD, as a UTF-8 encoder does, so every string of the
+    payload can be encoded and read (e.g. a password)."""
+    if isinstance(value, str):
+        return _LONE_SURROGATE.sub("\ufffd", value)
+    if isinstance(value, dict):
+        return {_well_formed(k): _well_formed(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_well_formed(v) for v in value]
+    return value
 
 
 def _parse_iso_timestamp(value: Any) -> Optional[float]:
@@ -190,7 +213,10 @@ class Webhook:
     ) -> Dict[str, Any]:
         """
         Verify the signature of an incoming Touchque webhook and return the
-        decoded payload.
+        decoded payload. The signature is checked over the strings as Touchque
+        sent them; in the payload returned, an unpaired UTF-16 surrogate
+        (``JSON.stringify`` sends one as the escape ``\\ud800``, e.g. in a
+        password a customer typed) is U+FFFD, so every string can be encoded.
 
         Args:
             raw_body: The raw request body as text, exactly as received (do
@@ -216,7 +242,9 @@ class Webhook:
 
         try:
             payload = json.loads(raw_body)
-        except json.JSONDecodeError:
+        except (ValueError, RecursionError):
+            # JSONDecodeError is a ValueError, as is an integer too long for
+            # Python 3.11+; RecursionError: arrays or objects nested too deep.
             raise TouchqueWebhookSignatureException("Invalid JSON payload")
         if not isinstance(payload, dict):
             raise TouchqueWebhookSignatureException("Webhook payload must be a JSON object")
@@ -225,16 +253,24 @@ class Webhook:
         if not isinstance(provided, str) or not provided:
             raise TouchqueWebhookSignatureException("No signature provided")
 
+        try:
+            canonical = _canonicalize(payload)
+        except (ValueError, RecursionError):
+            # Newer Pythons parse arrays and objects nested deeper than they write back out.
+            raise TouchqueWebhookSignatureException("Invalid JSON payload")
         mac = hmac.new(
             self._config.api_secret.encode("utf-8"),
-            _canonicalize(payload).encode("utf-8"),
+            canonical.encode("utf-8"),
             hashlib.sha256,
         )
         # Do NOT put the expected signature in the exception — a caller that
         # surfaces the error text would hand an attacker a signing oracle.
-        # Compared as bytes: compare_digest raises TypeError for a str with non-ASCII text.
-        if not hmac.compare_digest(mac.hexdigest().encode("ascii"), provided.encode("utf-8")):
+        # Compared as bytes: compare_digest raises TypeError for a str with non-ASCII text
+        # ("replace": an unpaired surrogate in the body's signature cannot be encoded).
+        if not hmac.compare_digest(mac.hexdigest().encode("ascii"), provided.encode("utf-8", "replace")):
             raise TouchqueWebhookSignatureException("Invalid webhook signature")
+
+        payload = _well_formed(payload)
 
         # Touchque always signs a timestamp, so a missing or unparseable one
         # fails closed instead of skipping the freshness check.

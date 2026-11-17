@@ -877,3 +877,68 @@ MIT © [Touchque](https://touchque.com)
 ## Touchque Login (hosted sign-in)
 
 Sign-up and sign-in pages for your own customers, on your brand, with OpenID Connect. See [support.touchque.com/touchque-login](https://support.touchque.com/touchque-login) for this SDK's client and a quickstart.
+
+### Custom domains
+
+```python
+client.identity.custom_domains.create(domain='login.acme.com')  # its 'records': the DNS records to add
+client.identity.custom_domains.verify(domain_id)   # checks its DNS TXT record and DNS now; answers the domain
+client.identity.custom_domains.get(domain_id)      # found in list(); TouchqueAPIException 404 not_found if none
+client.identity.custom_domains.overview()          # a CustomDomainsOverview: domains, verifiedDomains, slugPasskeys
+```
+
+A domain under one your organization verified (Organization → Domains) needs no TXT record. `list()` returns the domains alone.
+
+### Passkey domain
+
+A passkey is made for one domain, its relying party ID, and works only there and on the hosts under it, for good. By default that is the host the customer made it on (`acme.login.touchque.com` or your custom domain), so moving sign-in to another host leaves passkeys behind. With a passkey domain they are made for that domain on every sign-in host under it (your own `acme.com` site can use them too). Only a domain you proved: one of your verified custom domains, or a domain above one of them that your organization verified (Organization → Domains), since a TXT record on `login.acme.com` proves nothing about `acme.com`.
+
+```python
+client.identity.set_passkey_domain('acme.com')   # answers the tenant: get_tenant()['passkeyDomain']
+client.identity.set_passkey_domain(None)         # each passkey belongs to the host it was made on
+client.identity.custom_domains.overview()        # domains, verifiedDomains, slugPasskeys
+```
+
+Set it before customers make passkeys: a change that would leave theirs behind raises `TouchqueAPIException` with `status` 409, `data['error']` `passkeys_exist` and `data['count']`. Other refusals: 400 `invalid_request` with `data['field']` `passkeyDomain` (not a domain), 409 `not_your_domain`, 409 `organization_unavailable` (try again). Before Touchque Login is set up for the workspace (`update_tenant(slug=..., displayName=...)`), it is 400 `invalid_request` with `data['field']` `slug`.
+
+### Moving customers in from your user database
+
+Customers keep the password they have and move in one by one, at their first sign-in. Until then Touchque asks your endpoint, with a POST signed like its webhooks:
+
+- `user_store.verify_password` {email, password}: a password sign-in. When you answer with the user, the account is made with that password and your database is never asked about it again.
+- `user_store.get_user` {email}: "forgot password", an email code or a sign-up of an address with no account yet. The account is made without a password; the reset or the code proves the inbox.
+- `user_store.ping`: `test_user_store()`.
+
+Answer within 5 seconds with 200 `{"user": {...}}` (`id`, your own, kept as `externalId`; `email`, the address asked about; optional `emailVerified`, `name`, `givenName`, `familyName`, `nickname`, `picture`, `locale`, `phone`, `userMetadata`, `appMetadata`, snake_case too) or `{"user": null}` (or 404), the same for an unknown address and a wrong password. Anything else (another status, a redirect, a body that is not JSON, another `email`, no `id`, no answer in 5 seconds) is "unavailable": the sign-in is not refused as a wrong password, and 5 in a row pause asking for a minute.
+
+```python
+from touchque import TouchqueWebhookSignatureException
+
+@app.post('/touchque/user-store')
+def user_store():
+    try:
+        call = client.webhook.verify(raw_body=request.get_data(as_text=True), signature=request.headers.get('X-Signature'))
+    except TouchqueWebhookSignatureException:
+        return '', 401
+    if call['event'] == 'user_store.verify_password':
+        user = db.user_with_password(call['email'], call['password'])  # None: unknown or wrong
+    elif call['event'] == 'user_store.get_user':
+        user = db.user(call['email'])
+    else:  # user_store.ping
+        user = None
+    if user is None:
+        return {'user': None}
+    return {'user': {'id': user.id, 'email': call['email'], 'emailVerified': user.email_verified, 'name': user.name}}
+```
+
+`verify` checks the signature over the request as Touchque sent it. In what it returns, an unpaired UTF-16 surrogate (a broken character a customer typed, which `JSON.stringify` sends as the escape `\ud800`) is U+FFFD, as a UTF-8 encoder writes it, so `call['password']` can always be encoded.
+
+```python
+client.identity.set_user_store(url='https://api.acme.com/touchque/user-store', enabled=True)
+client.identity.test_user_store()               # {'ok', 'error', 'ms'}; url=... tries another endpoint
+client.identity.get_user_store()                # url, enabled, active, movedIn, lastCall, paused
+client.identity.set_user_store(enabled=False)   # what is left out is kept
+client.identity.remove_user_store()             # {}, also when none is set; accounts moved in stay
+```
+
+It needs passwords on (409 `passwords_off`); turning passwords off while it is on is 409 `user_store_on`.
