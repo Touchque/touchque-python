@@ -41,10 +41,6 @@ class WebhookEvents:
     DEVICE_UNLINKED = 'DEVICE_UNLINKED'
     PASSKEY_REGISTERED = 'PASSKEY_REGISTERED'
     PASSKEY_DELETED = 'PASSKEY_DELETED'
-    #: Device risk: an identification or a device_risk.check raised a signal that asks for more. Never a trait.
-    DEVICE_RISK_SIGNAL = 'DEVICE_RISK_SIGNAL'
-    #: Device risk: an alert rule of the workspace went off.
-    DEVICE_RISK_ALERT = 'DEVICE_RISK_ALERT'
     #: After the call, the user confirmed a provisional approval was theirs: critical actions are allowed again.
     APPROVAL_RECONFIRMED = 'APPROVAL_RECONFIRMED'
     #: The user took an approval back (``reason``: ``COACHED`` or ``UNDO``): end the session built on it.

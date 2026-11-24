@@ -76,6 +76,17 @@ def test_check_max_age_zero_is_sent(api):
     assert api.last_check()['maxAgeSeconds'] == 0
 
 
+def test_risk_check_and_login_request_pass_the_device_risk_fields_through(api):
+    # The Touchque Device Risk identification (and report) go to the API untouched.
+    rid = 'dre_' + 'a' * 22
+    tq = client_for(api)
+    tq.risk.check('jane@acme.com', device_risk_request_id=rid, device_risk='REPORT')
+    assert api.last_check()['deviceRiskRequestId'] == rid and api.last_check()['deviceRisk'] == 'REPORT'
+    tq.login.request('jane@acme.com', type='LOGIN', device_risk_request_id=rid, device_risk='REPORT')
+    sent = [c for c in api.calls() if c['path'] == '/login/request'][-1]['body']
+    assert sent['deviceRiskRequestId'] == rid and sent['deviceRisk'] == 'REPORT'
+
+
 def test_login_request_carries_the_proof_and_the_approval_makes_the_browser_known_until_forgotten(api):
     tq = client_for(api)
     request_id = tq.login.request('jane@acme.com', type='LOGIN', browser_proof=PROOF)['requestId']

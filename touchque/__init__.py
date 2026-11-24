@@ -38,7 +38,6 @@ from .resources.recovery import is_recovery_open
 from .resources.mobile import is_mobile_push_expired, mobile_push_from_webhook
 from .resources.assist import is_assist_check_passed
 from .resources.qr_pairings import QR_PAIRING_REFUSAL_REASONS, qr_pairing_uri
-from .resources.device_risk import DEVICE_RISK_EVENTS, DEVICE_RISK_REPORTS, parse_device_risk_check
 from .resources.action_types import SECOND_THOUGHT_QUESTIONS
 from .relay import RelayHandler, RelayResponse, RELAY_ROUTES
 from .rate_limiter import FixedWindowLimiter
@@ -117,9 +116,6 @@ __all__ = [
     'is_assist_check_passed',
     'QR_PAIRING_REFUSAL_REASONS',
     'qr_pairing_uri',
-    'DEVICE_RISK_EVENTS',
-    'DEVICE_RISK_REPORTS',
-    'parse_device_risk_check',
     'SECOND_THOUGHT_QUESTIONS',
     'RelayHandler',
     'RelayResponse',

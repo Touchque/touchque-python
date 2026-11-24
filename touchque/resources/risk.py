@@ -90,9 +90,11 @@ class Risk:
         :param context: for your Touchque Actions only (``event.context``).
         :param client_signals: the end user's page check from ``@touchque/web``
             (``startClientSignals().encode()``): software driving the browser is never silent.
-        :param device_risk: the page's device report from ``@touchque/web``
-            (``deviceRisk.collect({ purpose: 'sign_in' })``): a device signal is never silent.
-        :param device_risk_request_id: the page's identification (``deviceRisk.identify()``), preferred.
+        :param device_risk: the Touchque Device Risk report (from the Device Risk
+            SDK's tag or collect call), passed through untouched; optional. A device
+            signal is never silent.
+        :param device_risk_request_id: the Touchque Device Risk identification (from
+            the Device Risk SDK's tag or identify call); optional, preferred.
         """
         if not external_username:
             raise TouchqueConfigException('risk.check() needs the user (external_username)')

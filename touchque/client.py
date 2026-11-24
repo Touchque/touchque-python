@@ -14,7 +14,6 @@ from .resources.risk import Risk
 from .resources.recovery import Recovery
 from .resources.mobile import Mobile
 from .resources.qr_pairings import QrPairings
-from .resources.device_risk import DeviceRisk
 from .resources.safe_guard import SafeGuard
 from .resources.assist import Assist
 from .resources.webauthn import WebAuthn
@@ -64,8 +63,6 @@ class Touchque:
         self.mobile = Mobile(http)
         #: Pairing a browser by QR code: the phone that scans it is the one asked to approve.
         self.qr_pairings = QrPairings(http)
-        #: Device risk: the device on your sign-up, reset, sign-in or approval page (a paid add-on).
-        self.device_risk = DeviceRisk(http)
         #: Safe Guard: Safe transactions approved on the approver's phone, for TouchqueSafeGuard.
         self.safe_guard = SafeGuard(http)
 

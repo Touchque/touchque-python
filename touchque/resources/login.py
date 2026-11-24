@@ -67,11 +67,13 @@ class Login:
         scanned and confirmed on the phone: only the phone that scanned it is
         asked, once, with number matching, for the user it scanned for.
 
-        ``device_risk_request_id``: the page's identification from ``@touchque/web``
-        (``deviceRisk.identify()``), for this account only; or ``device_risk``,
-        the page's report (``deviceRisk.collect({ purpose })``), passed through untouched. Used
-        only when your workspace turned Device risk on: its signals only ever
-        ask for more, and a device your admin marked "step up always" asks at once.
+        ``device_risk_request_id``: the Touchque Device Risk identification (from
+        the Device Risk SDK's tag or identify call); optional, for this account
+        only. Or ``device_risk``: the Touchque Device Risk report (from the
+        Device Risk SDK's tag or collect call), passed through untouched;
+        optional. Used only when your workspace turned Device risk on: its
+        signals only ever ask for more, and a device your admin marked "step up
+        always" asks at once.
 
         ``client_signals``: the end user's page check from ``@touchque/web``
         (``startClientSignals().encode()``), passed through untouched. A browser
